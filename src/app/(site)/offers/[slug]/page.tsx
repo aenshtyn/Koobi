@@ -238,6 +238,17 @@ async function Offer({ params }: { params: Promise<{ slug: string }> }) {
 
         <BookingCard data={data} />
       </div>
+
+      <div className="sticky bottom-0 z-20 border-t-[1.5px] border-ink bg-card lg:hidden">
+        <div className="page-wrap flex items-center justify-between gap-3 py-3">
+          <span>
+            <span className="price">{formatKES(offer.price_kes)}</span> <span className="unit">{fmt.unit}</span>
+          </span>
+          <a className="opill" href="#book">
+            Choose and book
+          </a>
+        </div>
+      </div>
     </>
   );
 }
@@ -306,7 +317,7 @@ function BookingCard({ data }: { data: OfferPageData }) {
   const cta = offer.format === "one_to_one" ? (options[0]?.id === "trial" ? "Book a trial session" : "Book a session") : offer.format === "cohort" ? "Join the programme" : "Book a seat";
 
   return (
-    <aside className="flex min-w-0 flex-[1_1_340px] flex-col gap-4 lg:sticky lg:top-6" aria-label="Price and booking">
+    <aside id="book" className="flex min-w-0 flex-[1_1_340px] scroll-mt-6 flex-col gap-4 lg:sticky lg:top-6" aria-label="Price and booking">
       <form className="card r2 flex flex-col gap-[18px] p-6" action={`/book/${offer.slug}`}>
         <p className="flex items-baseline gap-1.5">
           <span className="price-xl">{formatKES(offer.price_kes)}</span>
