@@ -4,6 +4,7 @@ import { hasSupabase } from "@/lib/supabase/config";
 import { serverClient } from "@/lib/supabase/server";
 import { friendly } from "@/lib/db-error";
 import { uploadDocument } from "@/lib/documents";
+import { canEncrypt, encryptField } from "@/lib/crypto";
 import { sendTestPayout } from "@/lib/payouts";
 import { DOC_KINDS } from "@/domain/payouts";
 import { CHECKS, detailsFrom } from "./config";
@@ -47,6 +48,14 @@ export async function submitForCheck(_: VState, form: FormData): Promise<VState>
   if (!config) return { error: "Unknown check." };
   const details = detailsFrom(config, form);
   for (const f of config.fields) if (f.required && !details[f.name]) return { error: `Fill in: ${f.label}.` };
+  if (type === "identity_iprs") {
+    // The ID number is stored encrypted; reviewers see it decrypted on the review screen only.
+    const digits = String(details.id_number ?? "").replace(/\s/g, "");
+    if (!/^[0-9]{6,9}$/.test(digits)) return { error: "Enter your ID number as it appears on the card." };
+    if (!canEncrypt()) return { error: "ID checks are not switched on in this environment yet." };
+    details.id_number_enc = encryptField(digits);
+    delete details.id_number;
+  }
   if (config.people && (details.references as unknown[]).length < config.people.count) return { error: `Add ${config.people.count} references in full.` };
   const { db, id, error } = await startCheck(type, offering);
   if (error || !id) return { error: friendly(error?.message) };

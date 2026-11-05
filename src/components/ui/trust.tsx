@@ -65,7 +65,7 @@ export function EscrowPanel({ who = "The teacher or expert" }: { who?: string })
       <Seal />
       <p>
         <b>Held in escrow.</b> {who} is paid after you confirm the session happened. If it does not happen, the full
-        amount comes back to your M-Pesa.
+        amount comes back to you as credit, or to your M-Pesa if you ask.
       </p>
     </div>
   );

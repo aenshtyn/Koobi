@@ -1,5 +1,6 @@
 "use server";
 import { redirect } from "next/navigation";
+import { updateTag } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { serverClient } from "@/lib/supabase/server";
 import { friendly } from "@/lib/db-error";
@@ -21,6 +22,9 @@ export async function reviewCheck(_: ReviewState, form: FormData): Promise<Revie
   const db = await serverClient();
   const { error } = await db.rpc("review_check", { p_check: id, p_pass: pass, p_note: note || null, p_minutes: minutes, p_expires_on: expires || null });
   if (error) return { error: friendly(error.message) };
+  // Badges and tiers show on Explore, offer and teacher pages (cached).
+  updateTag("offers");
+  updateTag("teachers");
   redirect(`/staff/verification?done=${pass ? "passed" : "failed"}`);
 }
 

@@ -62,7 +62,7 @@ async function Ladder() {
                   return (
                     <li key={c.type} className="border-b border-dashed border-line-2 last:border-0">
                       <Link href={c.href} className="flex items-center justify-between gap-3 py-2.5 text-ink no-underline hover:text-orange-ink">
-                        <span>{CHECKS[c.type]?.title ?? c.type}</span>
+                        <span>{CHECKS[c.type]?.title ?? (c.type === "payout_ownership" ? "Payout number" : c.type)}</span>
                         <span className="flex items-center gap-2">
                           <CheckPill status={mine?.status ?? null} />
                           <ArrowRight size={16} aria-hidden="true" />

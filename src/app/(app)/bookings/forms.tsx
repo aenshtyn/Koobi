@@ -1,5 +1,6 @@
 "use client";
 import { useActionState, useState } from "react";
+import { useEchoAction } from "@/lib/use-echo-action";
 import {
   cancelBooking,
   confirmLesson,
@@ -32,7 +33,7 @@ export function ConfirmForm({ bookingId, teacherFirst }: { bookingId: string; te
 }
 
 export function CancelForm({ bookingId, preview, tone }: { bookingId: string; preview: string; tone: "credit" | "released" | "free" }) {
-  const [state, action, pending] = useActionState<FormState, FormData>(cancelBooking, {});
+  const [state, action, pending] = useEchoAction<FormState>(cancelBooking, {});
   const [open, setOpen] = useState(false);
   if (!open) {
     return (
@@ -49,7 +50,7 @@ export function CancelForm({ bookingId, preview, tone }: { bookingId: string; pr
         <label className="label" htmlFor="reason">
           Reason (optional)
         </label>
-        <input id="reason" name="reason" className="input" maxLength={120} placeholder="For example: travelling that week" />
+        <input id="reason" name="reason" className="input" maxLength={120} placeholder="For example: travelling that week" defaultValue={state.values?.reason} />
       </div>
       <ErrorLine error={state.error} />
       <div className="flex flex-wrap items-center gap-3">
@@ -65,7 +66,7 @@ export function CancelForm({ bookingId, preview, tone }: { bookingId: string; pr
 }
 
 export function ProblemForm({ bookingId, types }: { bookingId: string; types: [string, string][] }) {
-  const [state, action, pending] = useActionState<FormState, FormData>(reportProblem, {});
+  const [state, action, pending] = useEchoAction<FormState>(reportProblem, {});
   return (
     <form action={action} className="flex flex-col gap-5">
       <input type="hidden" name="booking_id" value={bookingId} />
@@ -74,7 +75,7 @@ export function ProblemForm({ bookingId, types }: { bookingId: string; types: [s
         <div className="flex flex-col gap-2">
           {types.map(([code, label], i) => (
             <label key={code} className="option">
-              <input type="radio" name="type" value={code} defaultChecked={i === 0 && types.length === 1} required />
+              <input type="radio" name="type" value={code} defaultChecked={state.values?.type ? state.values.type === code : i === 0 && types.length === 1} required />
               <span>{label}</span>
             </label>
           ))}
@@ -84,7 +85,7 @@ export function ProblemForm({ bookingId, types }: { bookingId: string; types: [s
         <label className="label" htmlFor="description">
           What happened
         </label>
-        <textarea id="description" name="description" className="input min-h-28" maxLength={2000} required minLength={10} />
+        <textarea id="description" name="description" className="input min-h-28" maxLength={2000} required minLength={10} defaultValue={state.values?.description} />
         <p className="help">The concierge reads this and may ask both of you for a short statement. Payment stays on hold until they decide.</p>
       </div>
       <ErrorLine error={state.error} />
@@ -96,7 +97,7 @@ export function ProblemForm({ bookingId, types }: { bookingId: string; types: [s
 }
 
 export function ReviewForm({ bookingId }: { bookingId: string }) {
-  const [state, action, pending] = useActionState<FormState, FormData>(submitReview, {});
+  const [state, action, pending] = useEchoAction<FormState>(submitReview, {});
   return (
     <form action={action} className="flex flex-col gap-5">
       <input type="hidden" name="booking_id" value={bookingId} />
@@ -105,7 +106,7 @@ export function ReviewForm({ bookingId }: { bookingId: string }) {
         <div className="flex flex-wrap gap-2">
           {[5, 4, 3, 2, 1].map((n) => (
             <label key={n} className="option py-2!">
-              <input type="radio" name="rating" value={n} required />
+              <input type="radio" name="rating" value={n} required defaultChecked={state.values?.rating === String(n)} />
               <span className="mono">{n}</span>
               <span className="help">{n === 5 ? "excellent" : n === 1 ? "poor" : ""}</span>
             </label>
@@ -116,7 +117,7 @@ export function ReviewForm({ bookingId }: { bookingId: string }) {
         <label className="label" htmlFor="body">
           What would you tell another learner? (optional)
         </label>
-        <textarea id="body" name="body" className="input min-h-28" maxLength={2000} />
+        <textarea id="body" name="body" className="input min-h-28" maxLength={2000} defaultValue={state.values?.body} />
         <p className="help">Shown on the offer with your first name. The teacher can reply once.</p>
       </div>
       <ErrorLine error={state.error} />
@@ -128,7 +129,7 @@ export function ReviewForm({ bookingId }: { bookingId: string }) {
 }
 
 export function ReplacementForm({ bookingId }: { bookingId: string }) {
-  const [state, action, pending] = useActionState<FormState, FormData>(requestReplacement, {});
+  const [state, action, pending] = useEchoAction<FormState>(requestReplacement, {});
   return (
     <form action={action} className="flex flex-col gap-5">
       <input type="hidden" name="booking_id" value={bookingId} />
@@ -136,7 +137,7 @@ export function ReplacementForm({ bookingId }: { bookingId: string }) {
         <label className="label" htmlFor="note">
           Anything the new teacher should know (optional)
         </label>
-        <textarea id="note" name="note" className="input min-h-24" maxLength={400} placeholder="For example: evenings after 6 work best" />
+        <textarea id="note" name="note" className="input min-h-24" maxLength={400} placeholder="For example: evenings after 6 work best" defaultValue={state.values?.note} />
       </div>
       <ErrorLine error={state.error} />
       <button className="btn self-start" type="submit" disabled={pending}>

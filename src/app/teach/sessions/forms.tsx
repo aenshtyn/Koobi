@@ -1,5 +1,6 @@
 "use client";
 import { useActionState, useState } from "react";
+import { useEchoAction } from "@/lib/use-echo-action";
 import { fileNote, lessonStep, replyToReview, teacherCancel, type FormState } from "./actions";
 
 function ErrorLine({ error }: { error?: string }) {
@@ -26,7 +27,7 @@ export function StepForm({ sessionId, step, label, primary = true }: { sessionId
 }
 
 export function NoteForm({ sessionId }: { sessionId: string }) {
-  const [state, action, pending] = useActionState<FormState, FormData>(fileNote, {});
+  const [state, action, pending] = useEchoAction<FormState>(fileNote, {});
   return (
     <form action={action} className="flex flex-col gap-5">
       <input type="hidden" name="session_id" value={sessionId} />
@@ -34,19 +35,19 @@ export function NoteForm({ sessionId }: { sessionId: string }) {
         <label className="label" htmlFor="covered">
           What you covered
         </label>
-        <textarea id="covered" name="covered" className="input min-h-28" maxLength={4000} required minLength={10} />
+        <textarea id="covered" name="covered" className="input min-h-28" maxLength={4000} required minLength={10} defaultValue={state.values?.covered} />
       </div>
       <div className="field">
         <label className="label" htmlFor="progress">
           How they are progressing (optional)
         </label>
-        <textarea id="progress" name="progress" className="input min-h-20" maxLength={4000} />
+        <textarea id="progress" name="progress" className="input min-h-20" maxLength={4000} defaultValue={state.values?.progress} />
       </div>
       <div className="field">
         <label className="label" htmlFor="next_steps">
           Next time, or practice before then (optional)
         </label>
-        <textarea id="next_steps" name="next_steps" className="input min-h-20" maxLength={4000} />
+        <textarea id="next_steps" name="next_steps" className="input min-h-20" maxLength={4000} defaultValue={state.values?.next_steps} />
         <p className="help">The learner and whoever pays see this note. Payment is released once they confirm, or automatically after 48 hours.</p>
       </div>
       <ErrorLine error={state.error} />
@@ -58,7 +59,7 @@ export function NoteForm({ sessionId }: { sessionId: string }) {
 }
 
 export function TeacherCancelForm({ bookingId }: { bookingId: string }) {
-  const [state, action, pending] = useActionState<FormState, FormData>(teacherCancel, {});
+  const [state, action, pending] = useEchoAction<FormState>(teacherCancel, {});
   const [open, setOpen] = useState(false);
   if (!open) {
     return (
@@ -75,7 +76,7 @@ export function TeacherCancelForm({ bookingId }: { bookingId: string }) {
         <label className="label" htmlFor="cancel-reason">
           Why you cannot teach it
         </label>
-        <input id="cancel-reason" name="reason" className="input" maxLength={200} required minLength={5} />
+        <input id="cancel-reason" name="reason" className="input" maxLength={200} required minLength={5} defaultValue={state.values?.reason} />
       </div>
       <ErrorLine error={state.error} />
       <div className="flex flex-wrap items-center gap-3">
@@ -91,14 +92,14 @@ export function TeacherCancelForm({ bookingId }: { bookingId: string }) {
 }
 
 export function ReplyForm({ reviewId }: { reviewId: string }) {
-  const [state, action, pending] = useActionState<FormState, FormData>(replyToReview, {});
+  const [state, action, pending] = useEchoAction<FormState>(replyToReview, {});
   return (
     <form action={action} className="flex flex-col gap-2">
       <input type="hidden" name="review_id" value={reviewId} />
       <label className="label" htmlFor={`reply-${reviewId}`}>
         Your reply (once, shown under the review)
       </label>
-      <textarea id={`reply-${reviewId}`} name="reply" className="input min-h-20" maxLength={1000} required />
+      <textarea id={`reply-${reviewId}`} name="reply" className="input min-h-20" maxLength={1000} required defaultValue={state.values?.reply} />
       <ErrorLine error={state.error} />
       <button className="btn2 self-start" type="submit" disabled={pending}>
         {pending ? "Posting…" : "Post the reply"}

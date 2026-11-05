@@ -34,11 +34,13 @@ async function Book({ params, searchParams }: { params: Promise<{ slug: string }
     ? await db.from("learners").select("id, alias").not("guardian_id", "is", null)
     : { data: [] };
 
+  // At most one trial per learner per offer (FR-BOOK-5); the database checks children's trials too.
+  const { data: trialOk } = auth.user ? await db.rpc("trial_available", { p_offering: offer.id }) : { data: true };
   const wanted = typeof sp.slot === "string" ? sp.slot : null;
   const slots = bookableSlots(details.next_slots ?? [], new Date());
   const ordered = wanted && slots.includes(wanted) ? [wanted, ...slots.filter((s) => s !== wanted)] : slots;
   const kinds = [
-    ...(details.trial_price_kes ? [{ value: "trial", label: "Trial lesson", sub: `${formatDuration(offer.duration_minutes)}, half price`, price: formatKES(details.trial_price_kes) }] : []),
+    ...(details.trial_price_kes && trialOk !== false ? [{ value: "trial", label: "Trial lesson", sub: `${formatDuration(offer.duration_minutes)}, half price`, price: formatKES(details.trial_price_kes) }] : []),
     { value: "single", label: "One lesson", sub: formatDuration(offer.duration_minutes), price: formatKES(offer.price_kes) },
   ];
   const wantKind = sp.kind === "single" ? "single" : null;

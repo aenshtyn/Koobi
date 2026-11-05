@@ -5,6 +5,7 @@ import { Guarded } from "@/components/app/shell";
 import { getReviewItem } from "@/lib/data/verification";
 import { CHECK_STATUS_LABELS, DOC_KINDS } from "@/domain/payouts";
 import { formatDate, formatTime } from "@/domain/format";
+import { decryptField } from "@/lib/crypto";
 import { viewDocument } from "../actions";
 import { ReviewForm } from "../review-form";
 
@@ -43,7 +44,18 @@ async function Review({ params, searchParams }: { params: Promise<{ id: string }
   const found = await getReviewItem(id);
   if (!found) notFound();
   const { item: c, docs } = found;
-  const rs = c.result_summary as { submitted?: unknown; recipient_name?: string; amount_kes?: number; review_note?: string };
+  const rs = c.result_summary as { submitted?: Record<string, unknown>; recipient_name?: string; amount_kes?: number; review_note?: string };
+  if (rs.submitted && typeof rs.submitted.id_number_enc === "string") {
+    let plain: string | null = null;
+    try {
+      plain = decryptField(rs.submitted.id_number_enc);
+    } catch {
+      plain = null;
+    }
+    const { id_number_enc: _enc, ...rest } = rs.submitted;
+    void _enc;
+    rs.submitted = { id_number: plain ?? "cannot be read with this server's key", ...rest };
+  }
   return (
     <div className="flex max-w-[760px] flex-col gap-6">
       <Link className="btn3 self-start" href="/staff/verification">

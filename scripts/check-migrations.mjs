@@ -48,9 +48,9 @@ $$;
 grant usage on schema auth to anon, authenticated, service_role;
 grant execute on all functions in schema auth to anon, authenticated, service_role;
 grant usage on schema public to anon, authenticated, service_role;
-alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+-- Like the hosted project: no automatic table or sequence grants, so every table a later migration
+-- adds must grant itself (the sprint 1 grants ran once, over the tables that existed then).
 alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
-alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
 `;
 
 const db = new PGlite();
@@ -191,6 +191,10 @@ const q = (sql, params) => () => db.query(sql, params);
 
 // ---------------------------------------------------------------------------- static checks
 async function checkStatic() {
+  const ungranted = (await db.query(`select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and c.relkind in ('r', 'v') and not has_table_privilege('service_role', c.oid, 'select')`)).rows.map((r) => r.relname);
+  ungranted.length ? fail('every public table and view is readable by the server role', ungranted.join(', ')) : pass('every public table and view is readable by the server role');
+
   const noRls = await rows(`
     select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
      where n.nspname = 'public' and c.relkind in ('r', 'p') and not c.relrowsecurity order by 1`);
@@ -1355,12 +1359,14 @@ async function checkAppPayoutFlow() {
     const [{ start_check: idc }] = await step('the teacher starts the identity check', () => act('authenticated', T, `select public.start_check('identity_iprs', null)`));
     const [{ start_check: same }] = await act('authenticated', T, `select public.start_check('identity_iprs', null)`);
     ok('starting it again returns the open check', same === idc, { idc, same });
-    await err('it cannot be sent without the ID photo', 'authenticated', T, `select public.submit_check('${idc}', '{"id_number": "12345678"}')`, /upload the document/);
+    await err('it cannot be sent without the ID photo', 'authenticated', T, `select public.submit_check('${idc}', '{"id_number_enc": "v1:dGVzdGNpcGhlcnRleHQwMDAwMDA="}')`, /upload the document/);
     await step('the teacher uploads the ID photo', () => act('authenticated', T, `insert into public.verification_documents (check_id, teacher_id, storage_key, kind)
       values ($1, $2, $3, 'id_front')`, [idc, teacher.id, `teacher/${teacher.id}/${idc}/front.jpg`]));
     await err('nobody can list documents directly', 'authenticated', T, `select * from public.verification_documents`, /permission denied/);
     await err('a malformed ID number is refused', 'authenticated', T, `select public.submit_check('${idc}', '{"id_number": "12AB"}')`, /ID number/);
-    await step('the teacher sends it for review', () => act('authenticated', T, `select public.submit_check($1, '{"id_number": "12345678"}')`, [idc]));
+    await step('the teacher sends it for review', () => act('authenticated', T, `select public.submit_check($1, '{"id_number_enc": "v1:dGVzdGNpcGhlcnRleHQwMDAwMDA=", "id_number": "12345678"}')`, [idc]));
+    const [kept] = await act('postgres', null, `select result_summary -> 'submitted' s from public.verification_checks where id = $1`, [idc]);
+    ok('only the encrypted ID number is kept', !('id_number' in kept.s) && kept.s.id_number_enc.startsWith('v1:'), kept);
     const mine = await act('authenticated', T, `select kind from public.my_check_documents() where check_id = $1`, [idc]);
     ok('the teacher sees one upload, without its key', mine.length === 1 && mine[0].kind === 'id_front' && !('storage_key' in mine[0]), mine);
     await err('a teacher cannot open documents', 'authenticated', T, `select public.open_document((select id from public.verification_documents limit 1))`, /reviewers only|permission denied/);
@@ -1600,6 +1606,9 @@ async function checkAppSprint7Flow() {
 
     // ---- data rights, roles, parameters, metrics
     await step('the parent asks for an export', () => act('authenticated', G, `insert into public.data_requests (kind) values ('export')`));
+    await act('authenticated', G, `select public.log_data_export()`);
+    const [dl] = await act('postgres', null, `select status, completed_at is not null done from public.data_requests where user_id = $1 and note = 'Downloaded from Settings'`, [G]);
+    ok('a download is recorded as a completed export', dl?.status === 'completed' && dl.done, dl);
     const [{ my_data_export: data }] = await act('authenticated', G, `select public.my_data_export()`);
     ok('the export holds the profile, children and bookings, not other people’s numbers',
       data.profile.display_name === 'Wanjiru Parent' && data.learners.length === 1 && data.bookings.length >= 3 && !JSON.stringify(data).includes('254722000032'), Object.keys(data));
@@ -1613,6 +1622,11 @@ async function checkAppSprint7Flow() {
     ok('today’s rule is unchanged until it takes effect', Number((await act('postgres', null, `select private.num_param('cancellation_window_hours', 0) v`))[0].v) === 24, null);
     await err('the metrics are for staff', 'authenticated', G, `select public.pilot_metrics(null)`, /staff only/);
     const [{ pilot_metrics: pm }] = await step('staff read the pilot metrics', () => act('authenticated', F, `select public.pilot_metrics(null)`));
+    await act('postgres', null, `insert into public.requests (requester_id, category, track, subject, goal, mode, matched_at, submitted_at)
+      values ($1, 'school_academic', 'school', 'Chemistry', 'KCSE', 'online', now(), now() - interval '2 hours')`, [G]).catch(() => null);
+    const [{ pilot_metrics_v2: pm2 }] = await act('authenticated', F, `select public.pilot_metrics_v2(null)`);
+    const m2 = pm2.metrics.find((x) => x.id === 'M2');
+    ok('M2 counts the same requests above and below the line', Number(m2.num) <= Number(m2.den), m2);
     ok('all seven decision metrics, each with its threshold', pm.metrics.length === 7 && pm.metrics.every((x) => typeof x.threshold === 'number'), pm.metrics.map((x) => x.id));
     const [tot] = await act('postgres', null, `select coalesce(sum(case when side = 'debit' then amount_kes else -amount_kes end), 0)::int d from public.ledger_entries`);
     ok('the whole ledger balances', tot.d === 0, tot.d);
@@ -1681,6 +1695,17 @@ async function checkHardening() {
     const seen = await act('authenticated', L, `select id from public.listing_snapshots where id = $1`, [b1.listing_snapshot_id]);
     const other = await act('authenticated', L2, `select id from public.listing_snapshots where id = $1`, [b1.listing_snapshot_id]);
     ok('the payer can read what they booked; another learner cannot', seen.length === 1 && other.length === 0, { seen, other });
+
+    // ---- one trial per learner per offering
+    const trial = (at) => act('authenticated', L, `insert into public.bookings (offering_id, learner_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)
+      values ($1, $2, 'trial', 'online', ${at}, 'cancellation-2026-11-v1', now()) returning id`, [offer.id, l1.id]);
+    const [t1] = await step('a first trial', () => trial(`date_trunc('hour', now()) + interval '8 days'`));
+    await err('a second trial on the same offer is refused', 'authenticated', L, `insert into public.bookings (offering_id, learner_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)
+      values ('${offer.id}', '${l1.id}', 'trial', 'online', date_trunc('hour', now()) + interval '9 days', 'cancellation-2026-11-v1', now())`, /already a trial/);
+    const [{ trial_available: before }] = await act('authenticated', L, `select public.trial_available($1)`, [offer.id]);
+    await act('authenticated', L, `update public.bookings set status = 'cancelled' where id = $1`, [t1.id]);
+    const [{ trial_available: after }] = await act('authenticated', L, `select public.trial_available($1)`, [offer.id]);
+    ok('an unpaid trial that was abandoned does not use it up', before === false && after === true, { before, after });
 
     // ---- double-booking
     await err('a second learner cannot take the same hour', 'authenticated', L2, `insert into public.bookings (offering_id, learner_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)

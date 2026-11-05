@@ -66,7 +66,10 @@ async function Booking({ params, searchParams }: { params: Promise<{ id: string 
       ) : null}
       {b.status === "paid" ? (
         <p className="panel info">
-          Waiting for {teacherFirst} to confirm, within 12 hours of payment. If they cannot, the full amount comes back to you as credit.
+          Waiting for {teacherFirst} to confirm, within 12 hours of payment.{" "}
+          {b.kind === "package_session" || b.kind === "managed_plan_session"
+            ? "If they cannot, the lesson goes back into your package."
+            : "If they cannot, the full amount comes back to you as credit."}
         </p>
       ) : null}
       {b.status === "awaiting_confirmation" ? (

@@ -1,5 +1,6 @@
 "use client";
 import { useActionState } from "react";
+import { useEchoAction } from "@/lib/use-echo-action";
 import { addChild, saveProfile, savePrefs, submitIdCheck, uploadIdDocument, type AState } from "./actions";
 import type { Prefs } from "@/lib/data/account";
 
@@ -12,7 +13,7 @@ function ErrorLine({ error }: { error?: string }) {
 }
 
 export function ChildForm({ consentText, curricula, needName }: { consentText: string; curricula: [string, string][]; needName: boolean }) {
-  const [state, action, pending] = useActionState<AState, FormData>(addChild, {});
+  const [state, action, pending] = useEchoAction<AState>(addChild, {});
   const year = new Date().getFullYear();
   return (
     <form action={action} className="flex flex-col gap-5">
@@ -21,7 +22,7 @@ export function ChildForm({ consentText, curricula, needName }: { consentText: s
           <label className="label" htmlFor="parent_name">
             Your name
           </label>
-          <input id="parent_name" name="parent_name" className="input" maxLength={80} required />
+          <input id="parent_name" name="parent_name" className="input" maxLength={80} required defaultValue={state.values?.parent_name} />
         </div>
       ) : null}
       <div className="grid gap-4 sm:grid-cols-2">
@@ -29,20 +30,20 @@ export function ChildForm({ consentText, curricula, needName }: { consentText: s
           <label className="label" htmlFor="alias">
             Child’s first name or nickname
           </label>
-          <input id="alias" name="alias" className="input" maxLength={40} required />
+          <input id="alias" name="alias" className="input" maxLength={40} required defaultValue={state.values?.alias} />
           <p className="help">Never a full name. Teachers see only this.</p>
         </div>
         <div className="field">
           <label className="label" htmlFor="year_of_birth">
             Year of birth
           </label>
-          <input id="year_of_birth" name="year_of_birth" className="input mono" inputMode="numeric" pattern="[0-9]{4}" min={year - 25} max={year - 3} required />
+          <input id="year_of_birth" name="year_of_birth" className="input mono" inputMode="numeric" pattern="[0-9]{4}" min={year - 25} max={year - 3} required defaultValue={state.values?.year_of_birth} />
         </div>
         <div className="field">
           <label className="label" htmlFor="curriculum">
             Curriculum (optional)
           </label>
-          <select id="curriculum" name="curriculum" className="input" defaultValue="">
+          <select id="curriculum" name="curriculum" className="input" defaultValue={state.values?.curriculum ?? ""}>
             <option value="">Not sure</option>
             {curricula.map(([code, label]) => (
               <option key={code} value={code}>
@@ -55,7 +56,7 @@ export function ChildForm({ consentText, curricula, needName }: { consentText: s
           <label className="label" htmlFor="language">
             Language of instruction
           </label>
-          <select id="language" name="language" className="input" defaultValue="en">
+          <select id="language" name="language" className="input" defaultValue={state.values?.language ?? "en"}>
             <option value="en">English</option>
             <option value="sw">Kiswahili</option>
           </select>

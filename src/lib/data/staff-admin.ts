@@ -64,7 +64,8 @@ export async function getAudit(action: string | null) {
 export async function getPilotMetrics(track: string | null) {
   if (!hasSupabase) return null;
   const db = await serverClient();
-  const { data, error } = await db.rpc("pilot_metrics", { p_track: track });
+  let { data, error } = await db.rpc("pilot_metrics_v2", { p_track: track });
+  if (error?.code === "PGRST202") ({ data, error } = await db.rpc("pilot_metrics", { p_track: track })); // before migration 0900
   if (error) throw new Error(`pilot_metrics: ${error.message}`);
   return data as { computed_at: string; metrics: { id: string; label: string; num: number; den: number; value?: number | null; threshold: number; rule: string; note?: string }[] };
 }

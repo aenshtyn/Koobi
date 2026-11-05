@@ -1,10 +1,11 @@
 "use client";
-import { useActionState, useState } from "react";
+import { useState } from "react";
+import { useEchoAction } from "@/lib/use-echo-action";
 import { resolveDispute, type DecideState } from "./actions";
 
 export function DecideForm({ disputeId, outcomes, amount, trial }: { disputeId: string; outcomes: [string, string][]; amount: number; trial: boolean }) {
-  const [state, action, pending] = useActionState<DecideState, FormData>(resolveDispute, {});
-  const [outcome, setOutcome] = useState("");
+  const [state, action, pending] = useEchoAction<DecideState>(resolveDispute, {});
+  const [outcome, setOutcome] = useState(state.values?.outcome ?? "");
   return (
     <form action={action} className="card flex flex-col gap-5 p-5">
       <input type="hidden" name="dispute_id" value={disputeId} />
@@ -15,7 +16,7 @@ export function DecideForm({ disputeId, outcomes, amount, trial }: { disputeId: 
             .filter(([code]) => !(trial && code === "partial_refund"))
             .map(([code, label]) => (
               <label key={code} className="option">
-                <input type="radio" name="outcome" value={code} required onChange={() => setOutcome(code)} />
+                <input type="radio" name="outcome" value={code} required defaultChecked={state.values?.outcome === code} onChange={() => setOutcome(code)} />
                 <span>{label}</span>
               </label>
             ))}
@@ -26,7 +27,7 @@ export function DecideForm({ disputeId, outcomes, amount, trial }: { disputeId: 
           <label className="label" htmlFor="credit_kes">
             Credit back to the payer (KES)
           </label>
-          <input id="credit_kes" name="credit_kes" className="input mono max-w-48" inputMode="numeric" pattern="[0-9]*" required />
+          <input id="credit_kes" name="credit_kes" className="input mono max-w-48" inputMode="numeric" pattern="[0-9]*" required defaultValue={state.values?.credit_kes} />
           <p className="help">
             Between <span className="mono">1</span> and <span className="mono">{amount - 1}</span>. The rest is released to the teacher with the usual fee and tax.
           </p>
@@ -36,13 +37,13 @@ export function DecideForm({ disputeId, outcomes, amount, trial }: { disputeId: 
         <label className="label" htmlFor="note">
           Reason, shown to both sides
         </label>
-        <textarea id="note" name="note" className="input min-h-24" maxLength={1000} required minLength={10} />
+        <textarea id="note" name="note" className="input min-h-24" maxLength={1000} required minLength={10} defaultValue={state.values?.note} />
       </div>
       <div className="field">
         <label className="label" htmlFor="minutes">
           Minutes you spent
         </label>
-        <input id="minutes" name="minutes" className="input mono max-w-32" inputMode="numeric" pattern="[0-9]*" required />
+        <input id="minutes" name="minutes" className="input mono max-w-32" inputMode="numeric" pattern="[0-9]*" required defaultValue={state.values?.minutes} />
       </div>
       {state.error ? (
         <p className="field-error" role="alert">

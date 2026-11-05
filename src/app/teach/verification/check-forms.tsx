@@ -1,5 +1,6 @@
 "use client";
 import { useActionState } from "react";
+import { useEchoAction } from "@/lib/use-echo-action";
 import { DOC_KINDS } from "@/domain/payouts";
 import type { CheckConfig } from "./config";
 import { requestTestPayout, submitForCheck, uploadForCheck, type VState } from "./actions";
@@ -49,7 +50,7 @@ export function UploadForm({ config, path, offeringId }: { config: CheckConfig; 
 }
 
 export function DetailsForm({ config, path, offeringId, canSend }: { config: CheckConfig; path: string; offeringId?: string | null; canSend: boolean }) {
-  const [state, action, pending] = useActionState<VState, FormData>(submitForCheck, {});
+  const [state, action, pending] = useEchoAction<VState>(submitForCheck, {});
   return (
     <form action={action} className="flex flex-col gap-4">
       <input type="hidden" name="type" value={config.type} />
@@ -61,7 +62,7 @@ export function DetailsForm({ config, path, offeringId, canSend }: { config: Che
             {f.label}
           </label>
           {f.kind === "textarea" ? (
-            <textarea id={`${config.type}-${f.name}`} name={f.name} className="input min-h-20" maxLength={500} required={f.required} />
+            <textarea id={`${config.type}-${f.name}`} name={f.name} className="input min-h-20" maxLength={500} required={f.required} defaultValue={state.values?.[f.name]} />
           ) : (
             <input
               id={`${config.type}-${f.name}`}
@@ -71,6 +72,7 @@ export function DetailsForm({ config, path, offeringId, canSend }: { config: Che
               pattern={f.pattern}
               maxLength={300}
               required={f.required}
+              defaultValue={state.values?.[f.name]}
             />
           )}
           {f.help ? <p className="help">{f.help}</p> : null}
@@ -85,7 +87,7 @@ export function DetailsForm({ config, path, offeringId, canSend }: { config: Che
                   <label className="label" htmlFor={`p${i}_${f.name}`}>
                     {f.label}
                   </label>
-                  <input id={`p${i}_${f.name}`} name={`p${i}_${f.name}`} className="input" type={f.kind === "tel" ? "tel" : "text"} maxLength={200} required />
+                  <input id={`p${i}_${f.name}`} name={`p${i}_${f.name}`} className="input" type={f.kind === "tel" ? "tel" : "text"} maxLength={200} required defaultValue={state.values?.[`p${i}_${f.name}`]} />
                 </div>
               ))}
             </fieldset>

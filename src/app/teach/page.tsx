@@ -104,7 +104,10 @@ async function Dashboard() {
             </li>
           ))}
         </ol>
-        <p className="help">ID and document checks open in a later sprint; badges appear on your profile as they pass.</p>
+        <p className="help">
+          Then get checked: your ID and payout number first, so learners can book and you can be paid.{" "}
+          <Link href="/teach/verification">Verification</Link>
+        </p>
       </section>
 
       {offers.length ? (

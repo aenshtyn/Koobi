@@ -85,8 +85,28 @@ export type PackageRow = {
   learner: { alias: string } | null;
 };
 
-const PKG_COLS =
-  "id, plan_type, sessions_total, sessions_used, price_kes, starts_on, ends_on, cadence_per_week, status, is_renewal, learner_id, offering:offerings(id, slug, title, modes, duration_minutes), teacher:teachers(display_name), learner:learners(alias)";
+// Parents cannot read offerings or teachers directly; the public offer view has what the screen needs.
+const PKG_COLS = "id, plan_type, sessions_total, sessions_used, price_kes, starts_on, ends_on, cadence_per_week, status, is_renewal, learner_id, offering_id, learner:learners(alias)";
+
+type PkgRaw = Omit<PackageRow, "offering" | "teacher"> & { offering_id: string };
+
+async function withOffers(rows: PkgRaw[]): Promise<PackageRow[]> {
+  if (!rows.length) return [];
+  const db = await serverClient();
+  const { data } = await db
+    .from("explore_offers")
+    .select("id, slug, title, modes, duration_minutes, teacher_name")
+    .in("id", [...new Set(rows.map((r) => r.offering_id))]);
+  const offers = (data ?? []) as { id: string; slug: string; title: string; modes: string[]; duration_minutes: number; teacher_name: string }[];
+  return rows.map(({ offering_id, ...r }) => {
+    const o = offers.find((x) => x.id === offering_id);
+    return {
+      ...r,
+      offering: o ? { id: o.id, slug: o.slug, title: o.title, modes: o.modes, duration_minutes: o.duration_minutes } : null,
+      teacher: o ? { display_name: o.teacher_name } : null,
+    };
+  });
+}
 
 export async function getMyPackages(): Promise<PackageRow[]> {
   if (!hasSupabase) return [];
@@ -94,7 +114,7 @@ export async function getMyPackages(): Promise<PackageRow[]> {
   const { data: auth } = await db.auth.getUser();
   if (!auth.user) return [];
   const { data } = await db.from("packages").select(PKG_COLS).eq("booked_by_user_id", auth.user.id).order("created_at", { ascending: false });
-  return (data ?? []) as unknown as PackageRow[];
+  return withOffers((data ?? []) as unknown as PkgRaw[]);
 }
 
 export async function getMyPackage(id: string): Promise<{ pkg: PackageRow; lessons: { id: string; status: string; starts_at: string }[] } | null> {
@@ -103,5 +123,6 @@ export async function getMyPackage(id: string): Promise<{ pkg: PackageRow; lesso
   const { data } = await db.from("packages").select(PKG_COLS).eq("id", id).maybeSingle();
   if (!data) return null;
   const { data: lessons } = await db.from("bookings").select("id, status, starts_at").eq("package_id", id).order("starts_at");
-  return { pkg: data as unknown as PackageRow, lessons: (lessons ?? []) as { id: string; status: string; starts_at: string }[] };
+  const [pkg] = await withOffers([data as unknown as PkgRaw]);
+  return { pkg, lessons: (lessons ?? []) as { id: string; status: string; starts_at: string }[] };
 }
