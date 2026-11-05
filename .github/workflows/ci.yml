@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npx next typegen && npm run typecheck
+      - run: npm test
+      - name: Migrations apply cleanly (PGlite)
+        run: npm run db:check
+      - name: Content lint (no "tutor", no "holiday tuition", no hard-coded ratings in pages)
+        run: |
+          ! grep -rniE '\btutors?\b|holiday tuition' src --include=*.tsx --include=*.ts --exclude-dir=fixtures | grep -v 'never "tutor"' | grep -v '// content-lint-ok'
+          ! grep -rnE 'rating_avg: [0-9]|[0-9]\.[0-9] ?★' src/app src/components
+      - run: npm run build
