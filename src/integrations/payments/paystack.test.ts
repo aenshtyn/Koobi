@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { fromSubunits, mpesaPhone, toSubunits, verifyPaystackSignature } from "./paystack";
+import { fromSubunits, mpesaPhone, refundStatus, toSubunits, verifyPaystackSignature } from "./paystack";
 
 describe("Paystack adapter", () => {
   const secret = "sk_test_example";
@@ -20,5 +20,11 @@ describe("Paystack adapter", () => {
   it("formats M-Pesa numbers with a plus", () => {
     expect(mpesaPhone("254712345678")).toBe("+254712345678");
     expect(mpesaPhone("+254712345678")).toBe("+254712345678");
+  });
+  it("treats only processed refunds as done", () => {
+    expect(refundStatus("processed")).toEqual({ status: "processed" });
+    expect(refundStatus("failed").status).toBe("failed");
+    expect(refundStatus("needs-attention")).toEqual({ status: "pending" });
+    expect(refundStatus(undefined)).toEqual({ status: "pending" });
   });
 });

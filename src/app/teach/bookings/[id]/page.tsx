@@ -5,6 +5,8 @@ import { Video } from "lucide-react";
 import { Guarded } from "@/components/app/shell";
 import { BookingPill } from "@/components/app/booking-pill";
 import { getTeachingBookings } from "@/lib/data/bookings";
+import { getSessionsFor } from "@/lib/data/lessons";
+import { TeacherCancelForm } from "../../sessions/forms";
 import { formatDuration, formatKES, formatTime, formatWeekday } from "@/domain/format";
 import { KIND_LABELS } from "@/domain/booking";
 import { OFFER_MODES } from "@/domain/listing-input";
@@ -24,6 +26,7 @@ async function Booking({ params, searchParams }: { params: Promise<{ id: string 
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const b = (await getTeachingBookings()).find((x) => x.id === id);
   if (!b) notFound();
+  const [session] = await getSessionsFor([b.id]);
   return (
     <div className="flex max-w-[620px] flex-col gap-6">
       <Link className="btn3 self-start" href="/teach/bookings">
@@ -31,7 +34,13 @@ async function Booking({ params, searchParams }: { params: Promise<{ id: string 
       </Link>
       {sp.done ? (
         <div className={`panel ${sp.done === "accepted" ? "escrow" : "info"} items-center`} role="status">
-          <p>{sp.done === "accepted" ? "Accepted. The learner can now see the link." : "Declined. The learner has the money back as credit."}</p>
+          <p>
+            {sp.done === "accepted"
+              ? "Accepted. The learner can now see the link."
+              : sp.done === "cancelled"
+                ? "Cancelled. The learner has the money back as credit."
+                : "Declined. The learner has the money back as credit."}
+          </p>
         </div>
       ) : null}
       <div className="flex flex-col gap-2">
@@ -53,12 +62,18 @@ async function Booking({ params, searchParams }: { params: Promise<{ id: string 
       </div>
       {b.kind === "trial" ? <p className="help">Trial lessons are discounted for the learner; you are still paid on the full price.</p> : null}
       {b.status === "paid" ? <RespondForm bookingId={b.id} mode={b.mode} /> : null}
+      {session && !["cancelled", "lapsed"].includes(b.status) ? (
+        <Link className={["scheduled", "in_progress", "awaiting_note"].includes(b.status) ? "btn self-start" : "btn2 self-start"} href={`/teach/sessions/${session.id}`}>
+          {b.status === "awaiting_note" ? "Write the lesson note" : b.status === "scheduled" ? "Open the lesson (check in)" : "Open the lesson"}
+        </Link>
+      ) : null}
       {b.meeting_link ? (
         <a className="btn2 self-start" href={b.meeting_link} target="_blank" rel="noreferrer">
           <Video size={18} aria-hidden="true" />
           Open the meeting link
         </a>
       ) : null}
+      {["accepted", "scheduled"].includes(b.status) ? <TeacherCancelForm bookingId={b.id} /> : null}
     </div>
   );
 }

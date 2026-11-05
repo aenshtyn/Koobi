@@ -21,9 +21,10 @@ export type MyBooking = {
   learner_alias: string;
   policy_version: string | null;
   created_at: string;
+  learner_id: string;
 };
 
-export type TeachingBooking = Omit<MyBooking, "slug" | "teacher_name" | "accepted_at" | "policy_version"> & { payer_first_name: string | null };
+export type TeachingBooking = Omit<MyBooking, "slug" | "teacher_name" | "accepted_at" | "policy_version" | "learner_id"> & { payer_first_name: string | null };
 
 export async function getMyBookings(): Promise<MyBooking[]> {
   if (!hasSupabase) return [];

@@ -6,6 +6,7 @@ export const LEARNER_NAV: NavItem[] = [
   { href: "/sessions", label: "Sessions", icon: "calendar", tab: true },
   { href: "/messages", label: "Messages", icon: "messages", tab: true },
   { href: "/account/learners", label: "Children", icon: "users", section: "Account" },
+  { href: "/account/credits", label: "Credits", icon: "wallet", section: "Account" },
   { href: "/account/receipts", label: "Receipts", icon: "receipt", section: "Account" },
   { href: "/account/settings", label: "Settings", icon: "settings", section: "Account", tab: true },
 ];

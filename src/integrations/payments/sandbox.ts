@@ -18,4 +18,10 @@ export const sandbox: PaymentProvider = {
   async verify() {
     return { status: "pending" };
   },
+  async refund({ reference }) {
+    return { ok: true, providerRef: `sandbox_refund_${reference}` };
+  },
+  async checkRefund() {
+    return { status: "processed" };
+  },
 };

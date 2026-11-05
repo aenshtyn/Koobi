@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { PaymentProvider, StartResult, Verification } from "./types";
+import type { PaymentProvider, RefundCheck, RefundStart, StartResult, Verification } from "./types";
 
 /**
  * Paystack Kenya: M-Pesa STK push through the Charge API, cards through the hosted checkout,
@@ -72,5 +72,24 @@ export function paystack(secret: string): PaymentProvider {
       if (["failed", "abandoned", "reversed"].includes(r.data.status)) return { status: "failed", reason: r.data.gateway_response ?? r.data.status };
       return { status: "pending" };
     },
+    async refund({ reference, amountKes, note }): Promise<RefundStart> {
+      const r = await call<{ id: number; status: string }>(secret, "/refund", {
+        method: "POST",
+        body: JSON.stringify({ transaction: reference, amount: toSubunits(amountKes), currency: "KES", merchant_note: note.slice(0, 200) }),
+      });
+      if (!r.status || !r.data?.id) return { ok: false, reason: r.message || "The refund was refused." };
+      return { ok: true, providerRef: String(r.data.id) };
+    },
+    async checkRefund(providerRef): Promise<RefundCheck> {
+      const r = await call<{ status: string }>(secret, `/refund/${encodeURIComponent(providerRef)}`);
+      return refundStatus(r.status ? r.data?.status : undefined);
+    },
   };
+}
+
+/** Paystack refund states: pending, processing, needs-attention, processed, failed. */
+export function refundStatus(status: string | undefined): RefundCheck {
+  if (status === "processed") return { status: "processed" };
+  if (status === "failed") return { status: "failed", reason: "The provider could not complete the refund." };
+  return { status: "pending" };
 }

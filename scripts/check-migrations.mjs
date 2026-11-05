@@ -114,6 +114,13 @@ async function main() {
   } finally {
     await db.exec('rollback');
   }
+
+  await db.exec('begin');
+  try {
+    await checkAppSessionFlow();
+  } finally {
+    await db.exec('rollback');
+  }
 }
 
 // ---------------------------------------------------------------------------- helpers
@@ -640,7 +647,7 @@ async function act(role, sub, sql, params) {
   try {
     return (await db.query(sql, params)).rows;
   } finally {
-    await db.exec('reset role');
+    await db.exec('reset role').catch(() => {}); // after an error the transaction is aborted; keep the first error
   }
 }
 
@@ -956,5 +963,289 @@ async function checkAppBookingFlow() {
     tot.d === 0 ? pass('booking: the whole ledger balances') : fail('booking: ledger balance', String(tot.d));
   } catch {
     // reported above
+  }
+}
+
+
+// ---------------------------------------------------------------------------- app flow: sprint 5 lessons and release
+// Mirrors src/app/teach/sessions, src/app/(app)/bookings and src/app/staff/(console)/disputes|refunds.
+// PGlite keeps now() fixed inside the transaction, so lesson times are moved instead of the clock.
+async function checkAppSessionFlow() {
+  const L = 'a1111111-1111-1111-1111-111111111111';
+  const T = 'a2222222-2222-2222-2222-222222222222';
+  const C = 'a3333333-3333-3333-3333-333333333333';
+  const F = 'a4444444-4444-4444-4444-444444444444';
+  const MEET = 'https://meet.google.com/abc-defg-hij';
+  const step = async (name, fn) => {
+    try {
+      const r = await fn();
+      pass(`lessons: ${name}`);
+      return r;
+    } catch (e) {
+      fail(`lessons: ${name}`, e.message);
+      throw e;
+    }
+  };
+  const ok = (name, cond, detail) => (cond ? pass(`lessons: ${name}`) : fail(`lessons: ${name}`, JSON.stringify(detail)));
+  const legs = async (bookingId, kind) => Object.fromEntries((await act('postgres', null, `select e.account::text a,
+      sum(case when e.side = 'credit' then e.amount_kes else -e.amount_kes end)::int v
+      from public.ledger_entries e join public.ledger_transactions t on t.id = e.txn_id
+      where e.booking_id = $1 and ($2::text is null or t.kind::text = $2) group by e.account`, [bookingId, kind ?? null])).map((r) => [r.a, r.v]));
+  const credits = async () => (await act('authenticated', L, `select public.my_credit_balance() v`))[0].v;
+  const state = async (bookingId) => (await act('postgres', null, `select b.status, b.cancelled_by_role, s.status ss, s.confirmed_by,
+      (select hold_status from public.payments p where p.booking_id = b.id and p.status <> 'failed' order by created_at desc limit 1) hold
+      from public.bookings b left join public.sessions s on s.booking_id = b.id where b.id = $1`, [bookingId]))[0];
+  try {
+    await act('postgres', null, `insert into auth.users (id, email, phone, raw_user_meta_data) values
+      ($1, 'sl@koobi.test', '254711000011', '{"display_name": "Sana Learner"}'), ($2, 'st@koobi.test', '254722000012', '{"display_name": "Tito Teacher"}'),
+      ($3, 'sc@koobi.test', null, '{"display_name": "Cora Concierge"}'), ($4, 'sf@koobi.test', null, '{"display_name": "Fay Finance"}')`, [L, T, C, F]);
+    await act('postgres', null, `insert into public.user_roles (user_id, role) values ($1, 'learner'), ($2, 'teacher'), ($3, 'concierge'), ($4, 'finance')`, [L, T, C, F]);
+    const [teacher] = await act('postgres', null, `insert into public.teachers (user_id, display_name) values ($1, 'Tito Teacher') returning id`, [T]);
+    const [offer] = await act('postgres', null, `insert into public.offerings (teacher_id, title, summary, category, track, format, subject_text,
+        modes, meeting_tool, duration_minutes, price_hour_kes, trial_discount_pct, language_codes)
+      values ($1, 'Spoken French', 'x', 'career_professional_growth', 'adults_professional', 'one_to_one', 'French',
+        '{online}', 'google_meet', 60, 1800, 50, '{en}') returning id`, [teacher.id]);
+    for (const [tbl, id] of [['teachers', teacher.id], ['offerings', offer.id]]) {
+      await act('postgres', null, `update public.${tbl} set listing_status = 'pending_review' where id = $1`, [id]);
+      await act('postgres', null, `update public.${tbl} set listing_status = 'approved' where id = $1`, [id]);
+    }
+    const [learner] = await act('authenticated', L, `insert into public.learners (user_id, alias) values ($1, 'Sana') returning id`, [L]);
+
+    let n = 0;
+    // Booked, paid and (unless told otherwise) accepted with a Meet link.
+    const booked = async (kind = 'single', accept = true) => {
+      n++;
+      const [b] = await act('authenticated', L, `insert into public.bookings (offering_id, learner_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)
+        values ($1, $2, $3, 'online', now() + interval '${3 + n} days', 'cancellation-2026-11-v1', now()) returning id`, [offer.id, learner.id, kind]);
+      await act('authenticated', L, `update public.bookings set status = 'awaiting_payment' where id = $1`, [b.id]);
+      const [p] = await act('authenticated', L, `insert into public.payments (booking_id, method) values ($1, 'mpesa_stk') returning id, amount_kes`, [b.id]);
+      await act('service_role', null, `select public.record_payment_success($1, $2, 0, null)`, [p.id, `ps_s5_${n}`]);
+      if (accept) await act('authenticated', T, `select public.teacher_respond_booking($1, true, $2, null)`, [b.id, MEET]);
+      const [s] = await act('postgres', null, `select id from public.sessions where booking_id = $1`, [b.id]);
+      return { id: b.id, payment: p.id, amount: p.amount_kes, session: s?.id };
+    };
+    // Moves the lesson so it starts `mins` minutes from now (negative: already started).
+    const startsIn = async (b, mins) => {
+      await act('postgres', null, `update public.bookings set starts_at = now() + make_interval(mins => $2) where id = $1`, [b.id, mins]);
+      await act('postgres', null, `update public.sessions set starts_at = now() + make_interval(mins => $2), ends_at = now() + make_interval(mins => $2 + 60) where booking_id = $1`, [b.id, mins]);
+    };
+    const teach = async (b) => {
+      await act('authenticated', T, `select public.teacher_check_in($1)`, [b.session]);
+      await act('authenticated', T, `select public.teacher_check_out($1)`, [b.session]);
+      await act('authenticated', T, `select public.file_lesson_note($1, 'Greetings and numbers to 100', 'Good accent', 'Days of the week')`, [b.session]);
+    };
+
+    // ---- A: the full lesson day, confirmed by the payer
+    const a = await step('a paid, accepted lesson has one scheduled session', () => booked());
+    await expectError('lessons: check-in is refused days before the lesson', 'authenticated', T, q(`select public.teacher_check_in('${a.session}')`), /opens 10 minutes/);
+    await expectError('lessons: the learner cannot check the teacher in', 'authenticated', L, q(`select public.teacher_check_in('${a.session}')`), /not your lesson/);
+    await expectError('lessons: the teacher cannot set a lesson state directly', 'authenticated', T,
+      q(`update public.sessions set status = 'in_progress' where id = '${a.session}'`), /permission denied/);
+    await startsIn(a, 5);
+    await step('the teacher checks in 5 minutes before the start', () => act('authenticated', T, `select public.teacher_check_in($1)`, [a.session]));
+    await expectError('lessons: an absence cannot be reported inside the grace period', 'authenticated', T, q(`select public.report_learner_absent('${a.session}')`), /wait 15 minutes/);
+    await expectError('lessons: the note comes after check-out', 'authenticated', T,
+      q(`select public.file_lesson_note('${a.session}', 'Greetings and numbers', null, null)`), /after check-out/);
+    await step('the teacher checks out', () => act('authenticated', T, `select public.teacher_check_out($1)`, [a.session]));
+    await expectError('lessons: a one-word note is refused', 'authenticated', T, q(`select public.file_lesson_note('${a.session}', 'French', null, null)`), /at least 10/);
+    await step('the teacher files the lesson note', () =>
+      act('authenticated', T, `select public.file_lesson_note($1, 'Greetings and numbers to 100', 'Good accent', 'Days of the week')`, [a.session]));
+    const notes = await act('authenticated', L, `select covered from public.lesson_notes where session_id = $1`, [a.session]);
+    ok('the payer reads the note', notes.length === 1 && notes[0].covered.startsWith('Greetings'), notes);
+    ok('waiting for the payer to confirm', (await state(a.id)).status === 'awaiting_confirmation', await state(a.id));
+    await expectError('lessons: the teacher cannot confirm their own lesson', 'authenticated', T, q(`select public.confirm_lesson('${a.id}')`), /not your booking/);
+    await expectError('lessons: no review before the lesson is confirmed', 'authenticated', L,
+      q(`insert into public.reviews (booking_id, rating, body) values ('${a.id}', 5, 'Great')`), /completed bookings/);
+    await step('the payer confirms the lesson', () => act('authenticated', L, `select public.confirm_lesson($1)`, [a.id]));
+    const sa = await state(a.id);
+    ok('confirmed by the payer, hold released', sa.status === 'confirmed' && sa.ss === 'confirmed' && sa.confirmed_by === 'payer' && sa.hold === 'released', sa);
+    const la = await legs(a.id, 'session_release');
+    ok('KES 1,800 at 20%: fee 360, withholding 72, teacher 1,368',
+      la.client_funds_held === -1800 && la.revenue_commission === 360 && la.withholding_payable === 72 && la.teacher_payable === 1368, la);
+    await expectError('lessons: a second confirm changes nothing', 'authenticated', L, q(`select public.confirm_lesson('${a.id}')`), /nothing to confirm/);
+    await step('the payer reviews the confirmed lesson', () =>
+      act('authenticated', L, `insert into public.reviews (booking_id, rating, body) values ($1, 5, 'Clear and patient')`, [a.id]));
+    await expectError('lessons: one review per lesson', 'authenticated', L,
+      q(`insert into public.reviews (booking_id, rating, body) values ('${a.id}', 4, 'Again')`), /duplicate key|unique/);
+    await step('the teacher replies once', () => act('authenticated', T, `update public.reviews set teacher_reply = 'Thank you, Sana' where booking_id = $1`, [a.id]));
+    await expectError('lessons: the teacher cannot reply twice', 'authenticated', T,
+      q(`update public.reviews set teacher_reply = 'Edited' where booking_id = '${a.id}'`), /once/);
+    await expectError('lessons: the teacher cannot hide a review', 'authenticated', T,
+      q(`update public.reviews set status = 'removed' where booking_id = '${a.id}'`), /staff-only|permission denied/);
+
+    // ---- B: a trial, auto-confirmed after 48 hours
+    const tr = await booked('trial');
+    await startsIn(tr, -5);
+    await step('a trial lesson is taught and noted', () => teach(tr));
+    await act('postgres', null, `update public.lesson_notes set filed_at = now() - interval '49 hours' where session_id = $1`, [tr.session]);
+    const [{ job_auto_confirm: auto }] = await step('auto-confirm runs', () => act('postgres', null, `select private.job_auto_confirm()`));
+    const st = await state(tr.id);
+    ok('the silent trial is confirmed automatically', auto === 1 && st.status === 'confirmed' && st.confirmed_by === 'auto', { auto, st });
+    const lt = await legs(tr.id, 'trial_release');
+    ok('trial: payer paid 900, teacher earns the full 1,800 less 90 withholding, Koobi funds 900',
+      tr.amount === 900 && lt.client_funds_held === -900 && lt.expense_trial_subsidy === -900 && lt.teacher_payable === 1710 && lt.withholding_payable === 90, { amount: tr.amount, lt });
+
+    // ---- C: cancellations
+    const c1 = await booked();
+    const [{ cancel_booking: r1 }] = await step('the payer cancels days ahead', () => act('authenticated', L, `select public.cancel_booking($1, 'Travelling')`, [c1.id]));
+    const s1 = await state(c1.id);
+    ok('24 hours or more ahead: full credit', r1 === 'credited' && s1.status === 'cancelled' && s1.cancelled_by_role === 'payer' && s1.hold === 'credited' && s1.ss === 'cancelled', { r1, s1 });
+    const c2 = await booked();
+    await startsIn(c2, 300);
+    const [{ cancel_booking: r2 }] = await step('the payer cancels 5 hours ahead', () => act('authenticated', L, `select public.cancel_booking($1, null)`, [c2.id]));
+    const s2 = await state(c2.id);
+    const l2 = await legs(c2.id, 'session_release');
+    ok('inside 24 hours: released to the teacher', r2 === 'released' && s2.status === 'cancelled' && s2.hold === 'released' && l2.teacher_payable === 1368, { r2, s2, l2 });
+    const c3 = await booked('single', false);
+    await startsIn(c3, 300);
+    const [{ cancel_booking: r3 }] = await act('authenticated', L, `select public.cancel_booking($1, null)`, [c3.id]);
+    ok('not yet accepted: full credit even inside 24 hours', r3 === 'credited' && (await state(c3.id)).hold === 'credited', r3);
+    const c4 = await booked();
+    await expectError('lessons: a teacher cancellation needs a reason', 'authenticated', T, q(`select public.teacher_cancel_booking('${c4.id}', '')`), /why/);
+    await expectError('lessons: the payer cannot use the teacher cancel', 'authenticated', L, q(`select public.teacher_cancel_booking('${c4.id}', 'Not me at all')`), /not your booking/);
+    await step('the teacher cancels with a reason', () => act('authenticated', T, `select public.teacher_cancel_booking($1, 'Family emergency')`, [c4.id]));
+    const s4 = await state(c4.id);
+    ok('teacher cancellation: full credit, counted against the teacher', s4.status === 'cancelled' && s4.cancelled_by_role === 'teacher' && s4.hold === 'credited', s4);
+
+    // ---- D: learner absent; an exception request holds the money until the concierge decides
+    const d1 = await booked();
+    await startsIn(d1, -20);
+    await act('authenticated', T, `select public.teacher_check_in($1)`, [d1.session]);
+    await step('the teacher reports the learner absent after the grace period', () => act('authenticated', T, `select public.report_learner_absent($1)`, [d1.session]));
+    const [{ open_dispute: exc }] = await step('the payer asks for an exception', () =>
+      act('authenticated', L, `select public.open_dispute($1, 'exception_request', 'Hospital visit, I have a note')`, [d1.id]));
+    await act('postgres', null, `update public.sessions set checked_out_at = now() - interval '49 hours' where id = $1`, [d1.session]);
+    const [{ job_auto_confirm: held }] = await act('postgres', null, `select private.job_auto_confirm()`);
+    ok('auto-confirm leaves a no-show with an open request alone', held === 0 && (await state(d1.id)).status === 'no_show_learner', held);
+    await expectError('lessons: the payer cannot resolve their own request', 'authenticated', L,
+      q(`select public.resolve_dispute('${exc}', 'credit', null, 'Granted on the hospital note', 5)`), /staff only/);
+    await expectError('lessons: a resolution needs the minutes spent', 'authenticated', C,
+      q(`select public.resolve_dispute('${exc}', 'credit', null, 'Granted on the hospital note', 0)`), /minutes/);
+    await step('the concierge grants the exception as credit', () =>
+      act('authenticated', C, `select public.resolve_dispute($1, 'credit', null, 'Granted on the hospital note', 6)`, [exc]));
+    const sd = await state(d1.id);
+    const [dd] = await act('postgres', null, `select status, outcome, credit_kes, staff_minutes from public.disputes where id = $1`, [exc]);
+    ok('exception granted: credited, dispute resolved with minutes logged',
+      sd.status === 'cancelled' && sd.hold === 'credited' && dd.status === 'resolved' && dd.outcome === 'credit' && dd.credit_kes === 1800 && dd.staff_minutes === 6, { sd, dd });
+    const d2 = await booked();
+    await startsIn(d2, -20);
+    await act('authenticated', T, `select public.teacher_check_in($1)`, [d2.session]);
+    await act('authenticated', T, `select public.report_learner_absent($1)`, [d2.session]);
+    await act('postgres', null, `update public.sessions set checked_out_at = now() - interval '49 hours' where id = $1`, [d2.session]);
+    await act('postgres', null, `select private.job_auto_confirm()`);
+    ok('a no-show with no request is released after 48 hours', (await state(d2.id)).status === 'confirmed' && (await state(d2.id)).hold === 'released', await state(d2.id));
+
+    // ---- E: a short lesson, settled with a partial refund
+    const e1 = await booked();
+    await startsIn(e1, -5);
+    await teach(e1);
+    await expectError('lessons: a problem report needs a description', 'authenticated', L, q(`select public.open_dispute('${e1.id}', 'short_session', 'short')`), /at least 10/);
+    const [{ open_dispute: ed }] = await step('the payer reports a short lesson', () =>
+      act('authenticated', L, `select public.open_dispute($1, 'short_session', 'We stopped after 25 minutes')`, [e1.id]));
+    ok('the lesson is held as disputed', (await state(e1.id)).status === 'disputed' && (await state(e1.id)).ss === 'disputed', await state(e1.id));
+    await expectError('lessons: one open problem per lesson', 'authenticated', L, q(`select public.open_dispute('${e1.id}', 'quality', 'Also the audio was poor')`), /already open/);
+    await expectError('lessons: a partial refund is less than the payment', 'authenticated', C,
+      q(`select public.resolve_dispute('${ed}', 'partial_refund', 1800, 'Half the lesson was lost', 10)`), /between 1 and/);
+    await step('the concierge credits KES 600 and releases the rest', () =>
+      act('authenticated', C, `select public.resolve_dispute($1, 'partial_refund', 600, 'Lesson ran 25 of 60 minutes', 10)`, [ed]));
+    const le = await legs(e1.id);
+    const se = await state(e1.id);
+    ok('partial: 600 to credit, 1,200 released (fee 240, withholding 48, teacher 912)',
+      se.status === 'confirmed' && se.hold === 'released' && le.guardian_credits === 600 && le.revenue_commission === 240 && le.withholding_payable === 48 && le.teacher_payable === 912 && le.client_funds_held === 0, { se, le });
+
+    // ---- F: a teacher no-show refunded to M-Pesa
+    const f1 = await booked();
+    await startsIn(f1, 5);
+    await expectError('lessons: a teacher no-show waits for the grace period', 'authenticated', L,
+      q(`select public.open_dispute('${f1.id}', 'teacher_no_show', 'Nobody joined the Meet')`), /wait 15 minutes/);
+    await startsIn(f1, -20);
+    const [{ open_dispute: fd }] = await step('the payer reports the teacher absent', () =>
+      act('authenticated', L, `select public.open_dispute($1, 'teacher_no_show', 'Nobody joined the Meet')`, [f1.id]));
+    await step('the concierge refunds in full', () =>
+      act('authenticated', C, `select public.resolve_dispute($1, 'full_refund', null, 'Teacher did not join, confirmed by the teacher', 4)`, [fd]));
+    const sf = await state(f1.id);
+    const [log] = await act('postgres', null, `select count(*)::int c from public.state_history where entity_id = $1 and to_state = 'no_show_teacher'`, [f1.id]);
+    const [rf] = await act('postgres', null, `select id, status, amount_kes from public.refunds where booking_id = $1`, [f1.id]);
+    ok('no-show recorded against the teacher, refund queued for Finance',
+      sf.status === 'cancelled' && sf.cancelled_by_role === 'teacher' && log.c === 1 && rf?.status === 'requested' && rf?.amount_kes === 1800, { sf, log, rf });
+    await act('authenticated', C, `update public.refunds set status = 'approved' where id = $1`, [rf.id]);
+    const [still] = await act('postgres', null, `select status from public.refunds where id = $1`, [rf.id]);
+    ok('the concierge cannot approve a refund', still.status === 'requested', still);
+    await step('Finance approves the refund', () => act('authenticated', F, `update public.refunds set status = 'approved', approved_by = $2 where id = $1`, [rf.id, F]));
+    await expectError('lessons: Finance cannot record the provider result', 'authenticated', F,
+      q(`select public.record_refund_success('${rf.id}', 'rf_1', 0)`), /permission denied/);
+    await step('the provider takes the refund', () => act('service_role', null, `select public.mark_refund_pending($1, 'rf_1')`, [rf.id]));
+    const [{ record_refund_success: done1 }] = await step('the provider confirms the refund', () =>
+      act('service_role', null, `select public.record_refund_success($1, 'rf_1', 0)`, [rf.id]));
+    const [{ record_refund_success: done2 }] = await act('service_role', null, `select public.record_refund_success($1, 'rf_1', 0)`, [rf.id]);
+    const [pf] = await act('postgres', null, `select status from public.payments where id = $1`, [f1.payment]);
+    const lf = await legs(f1.id, 'cash_refund');
+    ok('refunded once: payment refunded, credit spent, cash out 1,800', done1 && !done2 && pf.status === 'refunded' && lf.guardian_credits === -1800 && lf.cash_provider === 1800, { done1, done2, pf, lf });
+
+    // ---- G: credit back to M-Pesa on request
+    await expectError('lessons: nobody else can cash out a credit', 'authenticated', T, q(`select public.request_credit_refund('${c1.payment}')`), /not your payment/);
+    const [{ request_credit_refund: cr }] = await step('the payer asks for a cancelled lesson’s credit back', () =>
+      act('authenticated', L, `select public.request_credit_refund($1)`, [c1.payment]));
+    await expectError('lessons: the same credit cannot be requested twice', 'authenticated', L, q(`select public.request_credit_refund('${c1.payment}')`), /no credit left/);
+    await act('authenticated', F, `update public.refunds set status = 'approved', approved_by = $2 where id = $1`, [cr, F]);
+    await step('the refund settles with a KES 30 fee straight from approved', () => act('service_role', null, `select public.record_refund_success($1, 'rf_2', 30)`, [cr]));
+    const [pc] = await act('postgres', null, `select status from public.payments where id = $1`, [c1.payment]);
+    const lc = await legs(c1.id, 'cash_refund');
+    ok('credit refunded: payer gets 1,800, Koobi pays the 30 fee', pc.status === 'refunded' && lc.guardian_credits === -1800 && lc.cash_provider === 1830 && lc.expense_payment_fees === -30, { pc, lc });
+    const failing = await act('authenticated', L, `select public.request_credit_refund($1) id`, [c3.payment]);
+    await act('authenticated', F, `update public.refunds set status = 'approved', approved_by = $2 where id = $1`, [failing[0].id, F]);
+    await act('service_role', null, `select public.record_refund_failure($1, 'Number not registered')`, [failing[0].id]);
+    const [fr] = await act('postgres', null, `select status from public.refunds where id = $1`, [failing[0].id]);
+    ok('a refused refund is marked failed and can be retried', fr.status === 'failed', fr);
+
+    // ---- H: replacement and balances
+    const [{ request_replacement: rep }] = await step('the payer asks for a replacement teacher', () =>
+      act('authenticated', L, `select public.request_replacement($1, 'Prefer evenings')`, [f1.id]));
+    const [rr] = await act('postgres', null, `select status, is_replacement_for_booking_id b, track from public.requests where id = $1`, [rep]);
+    ok('replacement request reaches the concierge queue', rr.status === 'submitted' && rr.b === f1.id && rr.track === 'adults_professional', rr);
+    const bal = await credits();
+    // credits: c3 1,800 (refund failed, still credit) + c4 1,800 + d1 1,800 + e1 600 = 6,000
+    ok('the payer’s credit balance is KES 6,000', bal === 6000, bal);
+    const lines = await act('authenticated', L, `select payment_id, credit_kes, open_refund_kes, refunded_kes, last_refund_status from public.my_credit_lines()`);
+    const c1l = lines.find((x) => x.payment_id === c1.payment);
+    const c3l = lines.find((x) => x.payment_id === c3.payment);
+    ok('credit lines: refunded, failed and open amounts per payment',
+      lines.length === 6 && lines.reduce((s, x) => s + x.credit_kes, 0) === 6000 && c1l?.credit_kes === 0 && c1l?.refunded_kes === 1800 && c3l?.last_refund_status === 'failed' && c3l?.open_refund_kes === 0, lines);
+    const others = await act('authenticated', T, `select * from public.my_credit_lines()`);
+    ok('nobody else sees the payer’s credit lines', others.length === 0, others);
+
+    // ---- I: spending credit on the next lesson
+    const [nb] = await act('authenticated', L, `insert into public.bookings (offering_id, learner_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)
+      values ($1, $2, 'single', 'online', now() + interval '20 days', 'cancellation-2026-11-v1', now()) returning id`, [offer.id, learner.id]);
+    await expectError('lessons: someone else cannot spend the payer’s credit', 'authenticated', T, q(`select public.pay_with_credit('${nb.id}')`), /not your booking/);
+    const [{ pay_with_credit: cp }] = await step('the payer pays a new lesson with credit', () => act('authenticated', L, `select public.pay_with_credit($1)`, [nb.id]));
+    const [pcs] = await act('postgres', null, `select p.status, p.method, p.hold_status, p.amount_kes, b.status bs from public.payments p join public.bookings b on b.id = p.booking_id where p.id = $1`, [cp]);
+    const spent = Object.fromEntries((await act('postgres', null, `select payment_id, sum(amount_kes)::int v from public.ledger_entries
+       where booking_id = $1 and account = 'guardian_credits' and side = 'debit' group by payment_id`, [nb.id])).map((r) => [r.payment_id, r.v]));
+    // PGlite fixes now() inside the transaction, so every credit has the same age here; the split is checked, not the order.
+    const before = Object.fromEntries(lines.map((x) => [x.payment_id, x.credit_kes]));
+    ok('paid from credit: held for the lesson, spent against the payments the credit came from',
+      pcs.status === 'succeeded' && pcs.method === 'credit' && pcs.hold_status === 'held' && pcs.amount_kes === 1800 && pcs.bs === 'paid'
+        && Object.values(spent).reduce((a, v) => a + v, 0) === 1800 && Object.entries(spent).every(([pid, v]) => v <= (before[pid] ?? 0)), { pcs, spent });
+    ok('the balance drops by 1,800', (await credits()) === 4200, await credits());
+    const [nb2] = await act('authenticated', L, `insert into public.bookings (offering_id, learner_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)
+      values ($1, $2, 'single', 'online', now() + interval '21 days', 'cancellation-2026-11-v1', now()) returning id`, [offer.id, learner.id]);
+    await act('authenticated', L, `select public.pay_with_credit($1)`, [nb2.id]);
+    const [nb3] = await act('authenticated', L, `insert into public.bookings (offering_id, learner_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)
+      values ($1, $2, 'single', 'online', now() + interval '22 days', 'cancellation-2026-11-v1', now()) returning id`, [offer.id, learner.id]);
+    await act('authenticated', L, `select public.pay_with_credit($1)`, [nb3.id]);
+    const [nb4] = await act('authenticated', L, `insert into public.bookings (offering_id, learner_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)
+      values ($1, $2, 'single', 'online', now() + interval '23 days', 'cancellation-2026-11-v1', now()) returning id`, [offer.id, learner.id]);
+    ok('three lessons later KES 600 is left', (await credits()) === 600, await credits());
+    await expectError('lessons: credit cannot go below zero', 'authenticated', L, q(`select public.pay_with_credit('${nb4.id}')`), /not enough credit/);
+    await act('authenticated', T, `select public.teacher_respond_booking($1, true, $2, null)`, [nb.id, MEET]);
+    await act('authenticated', L, `select public.cancel_booking($1, null)`, [nb.id]);
+    const [{ request_credit_refund: tr2 }] = await act('authenticated', L, `select public.request_credit_refund($1)`, [cp]);
+    const [trf] = await act('postgres', null, `select method, amount_kes from public.refunds where id = $1`, [tr2]);
+    ok('credit from a credit-paid lesson goes back by transfer', trf.method === 'transfer' && trf.amount_kes === 1800, trf);
+    const [tot] = await act('postgres', null, `select coalesce(sum(case when side = 'debit' then amount_kes else -amount_kes end), 0)::int d from public.ledger_entries`);
+    ok('the whole ledger balances', tot.d === 0, tot.d);
+  } catch (e) {
+    if (!/^lessons:/.test(e?.message ?? '')) fail('lessons: flow stopped', e.message);
   }
 }

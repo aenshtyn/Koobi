@@ -5,6 +5,10 @@ import { Guarded } from "@/components/app/shell";
 import { ListingPill } from "@/components/app/listing-pill";
 import { getSessionUser } from "@/lib/auth";
 import { getMyOffers, getMyTeacher, getWindows } from "@/lib/data/listings";
+import { getTeachingBookings } from "@/lib/data/bookings";
+import { getSessionsFor } from "@/lib/data/lessons";
+import { BookingPill } from "@/components/app/booking-pill";
+import { formatTime, formatWeekday } from "@/domain/format";
 
 export const metadata: Metadata = { title: "Teaching" };
 
@@ -19,7 +23,13 @@ export default function TeachDashboard() {
 async function Dashboard() {
   const [user, teacher] = await Promise.all([getSessionUser(), getMyTeacher()]);
   const offers = teacher ? await getMyOffers(teacher.id) : [];
-  const windows = await getWindows(offers.map((o) => o.id));
+  const [windows, bookings] = await Promise.all([getWindows(offers.map((o) => o.id)), getTeachingBookings()]);
+  const active = bookings.filter((b) => ["scheduled", "in_progress", "awaiting_note", "paid"].includes(b.status));
+  const sessions = await getSessionsFor(active.map((b) => b.id));
+  const soon = active
+    .filter((b) => b.status !== "scheduled" || new Date(b.starts_at).getTime() < new Date().getTime() + 7 * 24 * 3600_000)
+    .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+    .slice(0, 6);
   const first = user?.name?.split(" ")[0];
 
   const steps = [
@@ -116,13 +126,40 @@ async function Dashboard() {
       <div className="grid gap-6 md:grid-cols-2">
         <section className="flex flex-col gap-3" aria-labelledby="today-h">
           <h2 id="today-h" className="t3">
-            Today
+            This week
           </h2>
-          <div className="empty">
-            <CalendarDays size={24} aria-hidden="true" />
-            <p className="font-semibold">No bookings yet.</p>
-            <p className="help">Bookings arrive once an offer is live and learners can pay.</p>
-          </div>
+          {soon.length ? (
+            <ul className="card flex flex-col divide-y divide-dashed divide-line-2 p-0!">
+              {soon.map((b) => {
+                const s = sessions.find((x) => x.booking_id === b.id);
+                return (
+                  <li key={b.id}>
+                    <Link
+                      href={s ? `/teach/sessions/${s.id}` : `/teach/bookings/${b.id}`}
+                      className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 text-ink no-underline hover:bg-orange-wash"
+                    >
+                      <span className="flex min-w-0 flex-col">
+                        <span className="font-semibold">{b.learner_alias}</span>
+                        <span className="help">
+                          <span className="mono">
+                            {formatWeekday(b.starts_at)} {formatTime(b.starts_at)}
+                          </span>{" "}
+                          · {b.title}
+                        </span>
+                      </span>
+                      <BookingPill status={b.status} />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <div className="empty">
+              <CalendarDays size={24} aria-hidden="true" />
+              <p className="font-semibold">No lessons this week.</p>
+              <p className="help">Bookings arrive once an offer is live and learners can pay.</p>
+            </div>
+          )}
         </section>
         <section className="flex flex-col gap-3" aria-labelledby="earn-h">
           <h2 id="earn-h" className="t3">

@@ -5,10 +5,11 @@ import { Guarded } from "@/components/app/shell";
 import { BookingSummary } from "@/components/app/booking-summary";
 import { EscrowPanel } from "@/components/ui/trust";
 import { getMyBooking } from "@/lib/data/bookings";
+import { getCredits } from "@/lib/data/lessons";
 import { getSessionUser } from "@/lib/auth";
 import { formatKES } from "@/domain/format";
 import { paymentProvider } from "@/integrations/payments";
-import { payWithCard } from "../../actions";
+import { payWithCard, payWithCredit } from "../../actions";
 import { MpesaForm } from "../../pay-form";
 
 export const metadata: Metadata = { title: "Pay" };
@@ -22,13 +23,14 @@ export default function PayPage(props: PageProps<"/checkout/[id]/pay">) {
 }
 
 async function Pay({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const [{ id }, sp, user] = await Promise.all([params, searchParams, getSessionUser()]);
+  const [{ id }, sp, user, credits] = await Promise.all([params, searchParams, getSessionUser(), getCredits()]);
   const b = await getMyBooking(id);
   if (!b) notFound();
   if (!["requested", "awaiting_payment"].includes(b.status)) redirect(`/checkout/${id}/status`);
   const total = b.price_kes - b.discount_kes;
   const provider = paymentProvider();
   const local = (user?.phone ?? "").replace(/^\+254/, "");
+  const spendable = credits.balance - credits.lines.reduce((sum, l) => sum + l.open_refund_kes, 0);
   return (
     <div className="flex max-w-[560px] flex-col gap-6">
       <div className="steps" role="group" aria-label="Step 2 of 3: pay">
@@ -42,6 +44,17 @@ async function Pay({ params, searchParams }: { params: Promise<{ id: string }>; 
       {typeof sp.error === "string" ? <p className="panel error">{sp.error}</p> : null}
       <BookingSummary b={b} />
       <EscrowPanel who={b.teacher_name} />
+      {spendable >= total ? (
+        <form action={payWithCredit} className="card flex flex-col gap-3 p-5">
+          <input type="hidden" name="booking_id" value={b.id} />
+          <p>
+            You have <span className="mono">{formatKES(spendable)}</span> in credit. This lesson uses <span className="mono">{formatKES(total)}</span> of it.
+          </p>
+          <button className="btn2 self-start" type="submit">
+            Pay with my credit
+          </button>
+        </form>
+      ) : null}
       {provider ? (
         <>
           <MpesaForm bookingId={b.id} phone={local} amount={formatKES(total)} />
