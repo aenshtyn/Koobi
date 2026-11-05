@@ -93,6 +93,13 @@ async function main() {
   } finally {
     await db.exec('rollback');
   }
+
+  await db.exec('begin');
+  try {
+    await checkAppListingFlow();
+  } finally {
+    await db.exec('rollback');
+  }
 }
 
 // ---------------------------------------------------------------------------- helpers
@@ -608,3 +615,105 @@ try {
 }
 console.log(`\n${passes} passed, ${failures} failed`);
 process.exit(failures ? 1 : 0);
+
+
+// ---------------------------------------------------------------------------- app flow: sprint 2 listings
+// Mirrors the writes in src/app/teach/actions.ts and src/app/staff/(console)/listings/actions.ts,
+// step by step, as the real roles. Unlike as(), each step keeps its changes so the next user sees them.
+async function act(role, sub, sql, params) {
+  await db.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(sub ? { sub, role } : { role })]);
+  if (role !== 'postgres') await db.exec(`set role ${role}`);
+  try {
+    return (await db.query(sql, params)).rows;
+  } finally {
+    await db.exec('reset role');
+  }
+}
+
+async function checkAppListingFlow() {
+  const T = '66666666-6666-6666-6666-666666666666';
+  const R = '77777777-7777-7777-7777-777777777777';
+  const step = async (name, fn) => {
+    try {
+      const r = await fn();
+      pass(`app flow: ${name}`);
+      return r;
+    } catch (e) {
+      fail(`app flow: ${name}`, e.message);
+      throw e;
+    }
+  };
+  try {
+    await act('postgres', null, `insert into auth.users (id, email, raw_user_meta_data) values
+      ($1, 'teacher@koobi.test', '{"display_name": "Test Teacher"}'), ($2, 'reviewer@koobi.test', '{"display_name": "Test Reviewer"}')`, [T, R]);
+    await act('postgres', null, `insert into public.user_roles (user_id, role) values ($1, 'reviewer')`, [R]);
+
+    await step('a new user claims the teacher role', () => act('authenticated', T, `select public.claim_role('teacher')`));
+    const [teacher] = await step('the application inserts a teacher row', () =>
+      act('authenticated', T, `insert into public.teachers (display_name, headline, bio, teacher_type, employment_status,
+          employment_declaration_version, employment_declared_at, county_code, languages)
+        values ('Test Teacher', 'Ran communications at a Nairobi bank for nine years.', $1, 'professional', 'self_employed',
+          '2026-11-v1', now(), 'nairobi', '{en,sw}') returning id, slug, listing_status`, ['x'.repeat(90)]));
+    await step('the application adds the category track', () =>
+      act('authenticated', T, `insert into public.teacher_tracks (teacher_id, track) values ($1, 'adults_professional')`, [teacher.id]));
+    const [offer] = await step('the editor inserts a one-to-one offer', () =>
+      act('authenticated', T, `insert into public.offerings (teacher_id, title, summary, description, outcomes, category, track, format,
+          subject_text, curriculum_code, goal, modes, meeting_tool, duration_minutes, price_hour_kes, trial_discount_pct, language_codes)
+        values ($1, 'Business English for professionals', 'Emails, meetings, presentations.', 'Built around your own work.',
+          '{"Emails that get read","Leading meetings"}', 'career_professional_growth', 'adults_professional', 'one_to_one',
+          'Business English', null, null, '{online}', 'google_meet', 50, 1800, 50, '{en}') returning id, slug, listing_status`, [teacher.id]));
+    await step('availability: a weekly window is added', () =>
+      act('authenticated', T, `insert into public.availability_windows (offering_id, kind, weekday, starts, ends)
+        values ($1, 'weekly', 1, '17:00', '20:00'), ($1, 'weekly', 4, '17:00', '20:00')`, [offer.id]));
+    await step('the teacher sends profile and offer for review', async () => {
+      await act('authenticated', T, `update public.teachers set listing_status = 'pending_review' where id = $1`, [teacher.id]);
+      await act('authenticated', T, `update public.offerings set listing_status = 'pending_review' where id = $1`, [offer.id]);
+    });
+    await expectError('app flow: the teacher cannot approve their own offer', 'authenticated', T,
+      q(`update public.offerings set listing_status = 'approved' where id = '${offer.id}'`));
+    const hidden = await act('anon', null, `select 1 from public.explore_offers where id = $1`, [offer.id]);
+    hidden.length === 0 ? pass('app flow: a pending offer is not on Explore') : fail('app flow: a pending offer is not on Explore', 'visible');
+
+    await step('a reviewer approves the profile and the offer', async () => {
+      const a = await act('authenticated', R, `update public.teachers set listing_status = 'approved' where id = $1 and listing_status = 'pending_review' returning id`, [teacher.id]);
+      const b = await act('authenticated', R, `update public.offerings set listing_status = 'approved' where id = $1 and listing_status = 'pending_review' returning id`, [offer.id]);
+      if (a.length !== 1 || b.length !== 1) throw new Error('approve updated no row');
+    });
+    const [card] = await act('anon', null, `select * from public.explore_offers where id = $1`, [offer.id]);
+    !card ? fail('app flow: the approved offer is on Explore', 'missing')
+      : card.price_kes === 1500 && card.price_basis === 'session' && card.rating_avg === null && card.teacher_name === 'Test Teacher'
+        ? pass('app flow: Explore shows it at KES 1,500 per 50-minute session, no rating yet')
+        : fail('app flow: Explore card fields', JSON.stringify({ p: card.price_kes, b: card.price_basis, r: card.rating_avg, n: card.teacher_name }));
+    const [details] = await act('anon', null, `select next_slots, trial_price_kes, meeting_tool from public.offer_details where id = $1`, [offer.id]);
+    details && details.next_slots.length > 0 && details.trial_price_kes === 750
+      ? pass('app flow: offer details list upcoming slots and a KES 750 trial')
+      : fail('app flow: offer details', JSON.stringify(details));
+    const prof = await act('anon', null, `select slug from public.public_teachers where slug = $1`, [teacher.slug]);
+    prof.length === 1 ? pass('app flow: the profile is public') : fail('app flow: the profile is public', 'missing');
+
+    const [second] = await act('authenticated', T, `insert into public.offerings (teacher_id, title, summary, category, track, format, subject_text,
+        modes, meeting_tool, duration_minutes, price_hour_kes, language_codes)
+      values ($1, 'Interview practice', 'Mock interviews with feedback.', 'career_professional_growth', 'adults_professional', 'one_to_one',
+        'Interviews', '{online}', 'zoom', 60, 2000, '{en}') returning id`, [teacher.id]);
+    await act('authenticated', T, `update public.offerings set listing_status = 'pending_review' where id = $1`, [second.id]);
+    await expectError('app flow: rejecting needs a reason', 'authenticated', R,
+      q(`update public.offerings set listing_status = 'rejected' where id = '${second.id}'`), /rejection_reason/);
+    await step('a reviewer sends an offer back with a reason', () =>
+      act('authenticated', R, `update public.offerings set listing_status = 'rejected', rejection_reason = 'Add what learners will work on.' where id = $1`, [second.id]));
+    await step('the teacher edits and resubmits (rejected, draft, in review)', async () => {
+      await act('authenticated', T, `update public.offerings set listing_status = 'draft', rejection_reason = null, outcomes = '{"Answering behavioural questions"}' where id = $1`, [second.id]);
+      await act('authenticated', T, `update public.offerings set listing_status = 'pending_review' where id = $1`, [second.id]);
+    });
+    await step('editing a live offer sends it back to review', async () => {
+      await act('authenticated', T, `update public.offerings set price_hour_kes = 2000 where id = $1`, [offer.id]);
+      await act('authenticated', T, `update public.offerings set listing_status = 'draft', rejection_reason = null where id = $1`, [offer.id]);
+      await act('authenticated', T, `update public.offerings set listing_status = 'pending_review' where id = $1`, [offer.id]);
+    });
+    const gone = await act('anon', null, `select 1 from public.explore_offers where id = $1`, [offer.id]);
+    gone.length === 0 ? pass('app flow: an edited live offer leaves Explore until re-approved') : fail('app flow: edited offer still visible', 'visible');
+    const other = await act('authenticated', U.other, `select id from public.offerings where teacher_id = $1`, [teacher.id]).catch(() => []);
+    other.length === 0 ? pass("app flow: another user cannot read this teacher's offers") : fail('app flow: offers leak to another user', `${other.length} rows`);
+  } catch {
+    // a failed step already reported; the remaining steps depend on it
+  }
+}
