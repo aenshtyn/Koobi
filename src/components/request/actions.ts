@@ -46,7 +46,7 @@ export async function submitRequest(_: RequestState, form: FormData): Promise<Re
     redirect(`/signin?next=${encodeURIComponent(back)}`);
   }
 
-  const { error } = await db.from("requests").insert({
+  const { data: created, error } = await db.from("requests").insert({
     category: category.code,
     track: category.defaultTrack,
     subject: fields.need.split("\n")[0].slice(0, 80),
@@ -55,8 +55,8 @@ export async function submitRequest(_: RequestState, form: FormData): Promise<Re
     county: fields.county || null,
     budget_max_kes: fields.budget ? Number(fields.budget) : null,
     schedule_notes: fields.when || null,
-  });
-  if (error) return { error: "We could not send your request. Try again in a minute.", fields };
+  }).select("id").single();
+  if (error || !created) return { error: "We could not send your request. Try again in a minute.", fields };
   (await cookies()).delete(DRAFT_COOKIE);
-  redirect("/home?request=sent");
+  redirect(`/requests/${created.id}?sent=1`);
 }

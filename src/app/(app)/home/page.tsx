@@ -6,6 +6,9 @@ import { Guarded } from "@/components/app/shell";
 import { RequestForm } from "@/components/request/request-form";
 import { readDraft } from "@/components/request/draft";
 import { getSessionUser } from "@/lib/auth";
+import { getMyRequests } from "@/lib/data/matching";
+import { RequestPill } from "@/components/app/request-pill";
+import { formatDate } from "@/domain/format";
 import { CATEGORIES } from "@/domain/taxonomy";
 
 export const metadata: Metadata = { title: "Home" };
@@ -30,6 +33,9 @@ export default function LearnerHome(props: PageProps<"/home">) {
           </section>
 
           <div className="flex flex-col gap-6">
+            <Suspense fallback={null}>
+              <MyRequests />
+            </Suspense>
             <section className="flex flex-col gap-3" aria-labelledby="up-h">
               <h2 id="up-h" className="t3">
                 Your lessons
@@ -87,4 +93,29 @@ async function Greeting({ searchParams }: { searchParams: Promise<Record<string,
 async function Form() {
   const draft = await readDraft();
   return <RequestForm initial={draft} back="/home" />;
+}
+
+async function MyRequests() {
+  const requests = await getMyRequests();
+  if (!requests.length) return null;
+  return (
+    <section className="flex flex-col gap-3" aria-labelledby="rq-h">
+      <h2 id="rq-h" className="t3">
+        Your requests
+      </h2>
+      <ul className="card flex flex-col p-0!">
+        {requests.slice(0, 5).map((r, i) => (
+          <li key={r.id} className={i ? "border-t border-dashed border-line-2" : ""}>
+            <Link className="flex items-center justify-between gap-3 px-4 py-3 text-ink no-underline hover:bg-orange-wash" href={`/requests/${r.id}`}>
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate font-semibold">{r.subject}</span>
+                <span className="mono text-xs text-ink-2">{formatDate(r.submitted_at)}</span>
+              </span>
+              <RequestPill status={r.status} />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }

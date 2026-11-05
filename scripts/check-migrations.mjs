@@ -100,6 +100,13 @@ async function main() {
   } finally {
     await db.exec('rollback');
   }
+
+  await db.exec('begin');
+  try {
+    await checkAppMatchingFlow();
+  } finally {
+    await db.exec('rollback');
+  }
 }
 
 // ---------------------------------------------------------------------------- helpers
@@ -715,5 +722,108 @@ async function checkAppListingFlow() {
     other.length === 0 ? pass("app flow: another user cannot read this teacher's offers") : fail('app flow: offers leak to another user', `${other.length} rows`);
   } catch {
     // a failed step already reported; the remaining steps depend on it
+  }
+}
+
+
+// ---------------------------------------------------------------------------- app flow: sprint 3 matching and messaging
+async function checkAppMatchingFlow() {
+  const L = '81111111-1111-1111-1111-111111111111'; // learner (requester)
+  const T = '82222222-2222-2222-2222-222222222222'; // teacher
+  const C = '83333333-3333-3333-3333-333333333333'; // concierge
+  const X = '84444444-4444-4444-4444-444444444444'; // someone else
+  const step = async (name, fn) => {
+    try {
+      const r = await fn();
+      pass(`matching: ${name}`);
+      return r;
+    } catch (e) {
+      fail(`matching: ${name}`, e.message);
+      throw e;
+    }
+  };
+  try {
+    await act('postgres', null, `insert into auth.users (id, email, raw_user_meta_data) values
+      ($1, 'l@koobi.test', '{"display_name": "Amina Learner"}'), ($2, 't@koobi.test', '{"display_name": "Tom Teacher"}'),
+      ($3, 'c@koobi.test', '{"display_name": "Cate Concierge"}'), ($4, 'x@koobi.test', '{}')`, [L, T, C, X]);
+    await act('postgres', null, `insert into public.user_roles (user_id, role) values ($1, 'learner'), ($2, 'teacher'), ($3, 'concierge')`, [L, T, C]);
+    const [teacher] = await act('postgres', null, `insert into public.teachers (user_id, display_name, headline, listing_status)
+      values ($1, 'Tom Teacher', 'Engineer, ten years on site.', 'draft') returning id`, [T]);
+    await act('postgres', null, `insert into public.teacher_tracks (teacher_id, track) values ($1, 'adults_professional')`, [teacher.id]);
+    const [offer] = await act('postgres', null, `insert into public.offerings (teacher_id, title, summary, category, track, format, subject_text,
+        modes, meeting_tool, duration_minutes, price_hour_kes, language_codes)
+      values ($1, 'English for engineers', 'Site meetings and reports.', 'career_professional_growth', 'adults_professional', 'one_to_one',
+        'English', '{online}', 'zoom', 60, 1800, '{en}') returning id`, [teacher.id]);
+    await act('postgres', null, `update public.teachers set listing_status = 'pending_review' where id = $1`, [teacher.id]);
+    await act('postgres', null, `update public.teachers set listing_status = 'approved' where id = $1`, [teacher.id]);
+    await act('postgres', null, `update public.offerings set listing_status = 'pending_review' where id = $1`, [offer.id]);
+    await act('postgres', null, `update public.offerings set listing_status = 'approved' where id = $1`, [offer.id]);
+
+    const [req] = await step('a learner posts a request', () =>
+      act('authenticated', L, `insert into public.requests (category, track, subject, goal, mode, budget_max_kes, schedule_notes)
+        values ('career_professional_growth', 'adults_professional', 'Site English', 'Run site meetings in English', 'online', 2000, 'Evenings')
+        returning id, status`));
+    const inbox = await step("the teacher sees it in their inbox, without the requester's identity", async () => {
+      const rows = await act('authenticated', T, `select * from public.open_requests_for_teacher()`);
+      if (rows.length !== 1 || rows[0].id !== req.id || 'requester_id' in rows[0]) throw new Error(JSON.stringify(rows));
+      return rows[0];
+    });
+    await step('the teacher applies with a short pitch', () =>
+      act('authenticated', T, `insert into public.teacher_applications (request_id, teacher_id, offering_id, pitch, proposed_price_kes)
+        values ($1, $2, $3, 'I run site meetings every week.', 1800)`, [req.id, teacher.id, inbox.offering_ids[0]]));
+    const noRows = await act('authenticated', X, `select * from public.open_requests_for_teacher()`);
+    noRows.length === 0 ? pass('matching: a non-teacher sees no open requests') : fail('matching: inbox leak', `${noRows.length} rows`);
+    await expectError('matching: a learner cannot send a shortlist', 'authenticated', L,
+      q(`select public.send_shortlist('${req.id}', 10, null, '[{"offering_id": "${offer.id}", "rank": 1, "reason": "x"}]')`), /concierge/);
+    await expectError('matching: the concierge must log minutes', 'authenticated', C,
+      q(`select public.send_shortlist('${req.id}', 0, null, '[{"offering_id": "${offer.id}", "rank": 1, "reason": "x"}]')`), /minutes/);
+    await step('the concierge sends a shortlist with logged minutes', () =>
+      act('authenticated', C, `select public.send_shortlist($1, 12, 'Called the learner', $2::jsonb)`,
+        [req.id, JSON.stringify([{ offering_id: offer.id, rank: 1, reason: 'Runs site meetings weekly.', source: 'teacher_applied', snapshot: { tier: 0 } }])]));
+    const [state] = await act('postgres', null, `select r.status, (select count(*)::int from public.staff_time_log where subject_id = r.id) minutes,
+        (select status from public.teacher_applications where request_id = r.id) app from public.requests r where r.id = $1`, [req.id]);
+    state.status === 'shortlisted' && state.minutes === 1 && state.app === 'shortlisted'
+      ? pass('matching: request shortlisted, minutes logged, application marked')
+      : fail('matching: shortlist state', JSON.stringify(state));
+    const mine = await act('authenticated', L, `select id, status, concierge_reason from public.matches where request_id = $1`, [req.id]);
+    mine.length === 1 && mine[0].status === 'sent' ? pass('matching: the learner sees the sent match') : fail('matching: learner match view', JSON.stringify(mine));
+    const others = await act('authenticated', X, `select id from public.matches where request_id = $1`, [req.id]);
+    others.length === 0 ? pass("matching: others cannot see the shortlist") : fail('matching: shortlist leak', `${others.length}`);
+    await expectError('matching: someone else cannot accept it', 'authenticated', X, q(`select public.accept_match('${mine[0].id}')`), /not your request/);
+    const [{ accept_match: thread }] = await step('the learner accepts and a thread opens', () =>
+      act('authenticated', L, `select public.accept_match($1)`, [mine[0].id]));
+    const [after] = await act('postgres', null, `select r.status, m.status ms, m.accepted_at is not null acc,
+        (select count(*)::int from public.thread_participants where thread_id = $2) parts
+        from public.requests r join public.matches m on m.request_id = r.id where r.id = $1`, [req.id, thread]);
+    after.status === 'matched' && after.ms === 'accepted' && after.acc && after.parts === 2
+      ? pass('matching: request matched, match accepted, two participants') : fail('matching: after accept', JSON.stringify(after));
+
+    await step('the teacher writes, with a phone number and an email in the text', () =>
+      act('authenticated', T, `insert into public.messages (thread_id, body) values ($1, 'Hello! Call me on 0712 345 678 or +254 733 000 111, or tom@example.com. Monday 17:00 costs KES 1,800, 2026-11-09.')`, [thread]));
+    const [msg] = await act('authenticated', L, `select body, redacted from public.messages where thread_id = $1`, [thread]);
+    msg && msg.redacted && !/0712|733|tom@/.test(msg.body) && /KES 1,800/.test(msg.body) && /2026-11-09/.test(msg.body) && /17:00/.test(msg.body)
+      ? pass('matching: contacts are hidden, prices, dates and times are kept') : fail('matching: redaction', JSON.stringify(msg));
+    const peek = await act('authenticated', X, `select id from public.messages where thread_id = $1`, [thread]);
+    peek.length === 0 ? pass('matching: an outsider cannot read the thread') : fail('matching: thread leak', `${peek.length}`);
+    await expectError('matching: an outsider cannot post to the thread', 'authenticated', X,
+      q(`insert into public.messages (thread_id, body) values ('${thread}', 'hi')`));
+    const [tt] = await act('authenticated', T, `select * from public.my_threads()`);
+    tt && tt.other_name === 'Amina' && tt.title === 'English for engineers' && tt.unread === 0
+      ? pass("matching: the teacher's thread list shows the learner's first name only") : fail('matching: teacher thread list', JSON.stringify(tt));
+    const [lt] = await act('authenticated', L, `select * from public.my_threads()`);
+    lt && lt.other_name === 'Tom Teacher' && lt.unread === 1
+      ? pass("matching: the learner's thread list shows one unread message") : fail('matching: learner thread list', JSON.stringify(lt));
+
+    const [req2] = await act('authenticated', L, `insert into public.requests (category, track, subject, goal, mode)
+      values ('career_professional_growth', 'adults_professional', 'Interviews', 'Practise interviews', 'online') returning id`);
+    await act('authenticated', C, `select public.send_shortlist($1, 5, null, $2::jsonb)`, [req2.id, JSON.stringify([{ offering_id: offer.id, rank: 1, reason: 'Fits.' }])]);
+    await expectError('matching: declining needs a reason', 'authenticated', L, q(`select public.decline_shortlist('${req2.id}', '')`), /why/);
+    await step('the learner asks for more options', () => act('authenticated', L, `select public.decline_shortlist($1, 'I need weekend times.')`, [req2.id]));
+    const [back] = await act('postgres', null, `select status from public.requests where id = $1`, [req2.id]);
+    back.status === 'triaged' ? pass('matching: the request goes back to the concierge') : fail('matching: decline state', back.status);
+    await expectError('matching: a declined teacher cannot be re-sent on the same request', 'authenticated', C,
+      q(`select public.send_shortlist('${req2.id}', 5, null, '[{"offering_id": "${offer.id}", "rank": 1, "reason": "again"}]')`), /already answered/);
+  } catch {
+    // reported above
   }
 }
