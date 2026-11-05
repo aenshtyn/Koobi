@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { PAGES, findPage, pagesIn } from "./pages";
 
 describe("page registry", () => {
-  it("lists 109 screens in the agreed split", () => {
-    expect(PAGES).toHaveLength(109);
+  it("lists 110 screens in the agreed split (109 planned, plus launch readiness in sprint 8)", () => {
+    expect(PAGES).toHaveLength(110);
     expect(pagesIn("public")).toHaveLength(16);
     expect(pagesIn("auth")).toHaveLength(3);
     expect(pagesIn("learner")).toHaveLength(26);
     expect(pagesIn("teacher")).toHaveLength(28);
-    expect(pagesIn("staff")).toHaveLength(26);
+    expect(pagesIn("staff")).toHaveLength(27);
     expect(pagesIn("system")).toHaveLength(10);
   });
   it("has unique ids and routes", () => {

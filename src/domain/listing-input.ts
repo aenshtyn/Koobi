@@ -128,7 +128,8 @@ export type OfferInput = {
   language_codes: string[];
 };
 
-export function parseOfferForm(f: Getter): Result<OfferInput> {
+/** Bands default to the seeded values; the server passes the dated parameters in force (sprint 8). */
+export function parseOfferForm(f: Getter, bands: Record<TrackCode, { min: number; max: number }> = PRICE_BANDS): Result<OfferInput> {
   const errors: Record<string, string> = {};
   const category = str(f, "category") as CategoryCode;
   const allowed = CATEGORY_TRACKS[category];
@@ -175,7 +176,7 @@ export function parseOfferForm(f: Getter): Result<OfferInput> {
   if (!modes.length) errors.modes = "Choose at least one place where lessons happen.";
   if (modes.includes("online") && !(tool in MEETING_TOOLS)) errors.meeting_tool = "Choose Google Meet or Zoom for online lessons.";
   if (!DURATIONS.includes(duration as (typeof DURATIONS)[number])) errors.duration_minutes = "Choose a session length.";
-  const band = PRICE_BANDS[track];
+  const band = bands[track] ?? PRICE_BANDS[track];
   if (!Number.isInteger(price) || price <= 0) errors.price_hour_kes = "Enter the price per hour in whole shillings.";
   else if (price < band.min || price > band.max) errors.price_hour_kes = `For this kind of offer the price per hour must be between KES ${band.min.toLocaleString("en-KE")} and KES ${band.max.toLocaleString("en-KE")}.`;
   if (!v.language_codes.length) errors.language_codes = "Choose at least one language.";

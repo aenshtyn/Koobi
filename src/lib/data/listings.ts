@@ -140,3 +140,11 @@ export async function getPendingListings(): Promise<{ teachers: PendingTeacher[]
     offers: (o.data ?? []) as unknown as PendingOffer[],
   };
 }
+
+/** Hourly price bands in force (dated parameters; the database enforces them on every offer). */
+export async function getPriceBands(): Promise<Record<string, { min: number; max: number }>> {
+  if (!hasSupabase) return {};
+  const db = await serverClient();
+  const { data } = await db.rpc("price_bands");
+  return (data as Record<string, { min: number; max: number }> | null) ?? {};
+}

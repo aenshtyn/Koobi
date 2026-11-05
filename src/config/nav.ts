@@ -48,4 +48,5 @@ export const STAFF_NAV: NavItem[] = [
   { href: "/staff/users", label: "Staff and roles", icon: "shield", section: "Admin" },
   { href: "/staff/audit", label: "Audit log", icon: "file", section: "Admin" },
   { href: "/staff/reports/pilot", label: "Pilot metrics", icon: "chart", section: "Admin", tab: true },
+  { href: "/staff/readiness", label: "Launch readiness", icon: "check", section: "Admin" },
 ];

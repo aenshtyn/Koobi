@@ -231,6 +231,11 @@ insert into public.parameters (key, track, format, mode, value, effective_from, 
   ('rating_min_reviews', null, null, null, '3', '2026-11-01 00:00:00+03', 'A rating is shown only from this many published reviews.'),
   -- Payouts (FR-PAYOUT-1, FR-PAYOUT-3)
   ('payout_min_threshold_kes', null, null, null, '500', '2026-11-01 00:00:00+03', 'FR-PAYOUT-1 [assumption].'),
+  -- Hourly price bands per track (FR-OFF-3), enforced on every offer
+  ('price_band_kes', 'school',              null, null, '{"min": 500, "max": 5000}', '2026-11-01 00:00:00+03', 'Hourly price band, school track.'),
+  ('price_band_kes', 'adults_professional', null, null, '{"min": 700, "max": 2500}', '2026-11-01 00:00:00+03', 'Hourly price band, adults and professionals.'),
+  ('price_band_kes', 'practical',           null, null, '{"min": 500, "max": 2000}', '2026-11-01 00:00:00+03', 'Hourly price band, practical skills.'),
+  ('staff_mfa_required',       null, null, null, 'false', '2026-11-01 00:00:00+03', 'Turn on (new row, value true) for production.'),
   ('payout_transfer_fee_tiers', null, null, null,
    '[{"up_to_kes": 1500, "fee_kes": 20}, {"up_to_kes": 20000, "fee_kes": 40}, {"up_to_kes": null, "fee_kes": 60}]',
    '2026-11-01 00:00:00+03', 'Paystack transfers to M-Pesa, absorbed by the platform (FR-PAYOUT-3).')

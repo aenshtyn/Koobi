@@ -135,6 +135,13 @@ async function main() {
   } finally {
     await db.exec('rollback');
   }
+
+  await db.exec('begin');
+  try {
+    await checkHardening();
+  } finally {
+    await db.exec('rollback');
+  }
 }
 
 // ---------------------------------------------------------------------------- helpers
@@ -563,7 +570,7 @@ async function checkInTransaction() {
                                values ($1, $2, 'single', 'online', now() + interval '3 days') returning id`, [ID.offerApproved, ID.learner])).rows[0];
     await db.query(`update public.bookings set status = 'awaiting_payment' where id = $1`, [b.id]);
     await db.query(`update public.bookings set status = 'paid' where id = $1`, [b.id]);
-  }, /not allowed for this caller/);
+  }, /not allowed for this caller|booking actions/);
   await expectError('bookings: an illegal transition (requested -> confirmed) is rejected', 'postgres', null, async () => {
     const b = (await db.query(`insert into public.bookings (offering_id, learner_id, teacher_id, booked_by_user_id, kind, mode, starts_at, price_kes)
                                values ($1, $2, $3, $4, 'single', 'online', now() + interval '3 days', 1500) returning id`,
@@ -606,9 +613,8 @@ async function checkInTransaction() {
   await expectOk('my_verification_checks: a teacher sees status of own checks only', 'authenticated', U.teacher,
     q(`select status, check_type from public.my_verification_checks order by check_type`),
     (r) => (r.rows.length === 2 ? null : `${r.rows.length} rows`));
-  await expectOk('verification_checks: a teacher cannot pass their own check (no row updated)', 'authenticated', U.teacher,
-    q(`update public.verification_checks set status = 'passed' where check_type = 'good_conduct' returning id`),
-    (r) => (r.rows.length === 0 ? null : 'check updated by its teacher'));
+  await expectError('verification_checks: a teacher cannot pass their own check', 'authenticated', U.teacher,
+    q(`update public.verification_checks set status = 'passed' where check_type = 'good_conduct' returning id`), /permission denied/);
 
   // ---- webhooks and seats
   await expectError('provider_events: a duplicate provider event id is rejected', 'postgres', null, async () => {
@@ -908,7 +914,7 @@ async function checkAppBookingFlow() {
     await expectError('booking: a learner cannot record their own payment', 'authenticated', L,
       q(`select public.record_payment_success('${p1.id}', 'x', 0, null)`), /permission denied/);
     await expectError('booking: a learner cannot mark a booking paid', 'authenticated', L,
-      q(`update public.bookings set status = 'paid' where id = '${trial.id}'`), /not allowed/);
+      q(`update public.bookings set status = 'paid' where id = '${trial.id}'`), /not allowed|booking actions/);
     await step('the provider accepts the STK push', () => act('service_role', null, `select public.mark_payment_pending($1, 'ps_ref_1')`, [p1.id]));
     const [{ record_payment_success: first }] = await step('a verified webhook records the payment', () =>
       act('service_role', null, `select public.record_payment_success($1, 'ps_ref_1', 14, 886)`, [p1.id]));
@@ -1558,9 +1564,9 @@ async function checkAppSprint7Flow() {
     const [pp] = await act('authenticated', G, `insert into public.payments (package_id, method) values ($1, 'mpesa_stk') returning id, amount_kes`, [pk.id]);
     await act('service_role', null, `select public.record_payment_success($1, 'ps_s7_pk', 0, null)`, [pp.id]);
     ok('the package is active and KES 14,400 is held', pp.amount_kes === 14400 && (await act('postgres', null, `select status from public.packages where id = $1`, [pk.id]))[0].status === 'active', pp);
-    await err('someone else cannot book from the package', 'authenticated', T, `select public.book_from_package('${pk.id}', now() + interval '3 days', 'online')`, /not your package/);
+    await err('someone else cannot book from the package', 'authenticated', T, `select public.book_from_package('${pk.id}', now() + interval '10 days', 'online')`, /not your package/);
     const [{ book_from_package: l1 }] = await step('the parent books a lesson from the package', () =>
-      act('authenticated', G, `select public.book_from_package($1, now() + interval '3 days', 'online')`, [pk.id]));
+      act('authenticated', G, `select public.book_from_package($1, now() + interval '10 days', 'online')`, [pk.id]));
     const [b1] = await act('postgres', null, `select status, kind, price_kes, (select sessions_used from public.packages where id = $2) used from public.bookings where id = $1`, [l1, pk.id]);
     ok('paid from the package: KES 1,800 a lesson, one used', b1.status === 'paid' && b1.kind === 'package_session' && b1.price_kes === 1800 && b1.used === 1, b1);
     await act('authenticated', T, `select public.teacher_respond_booking($1, true, $2, null)`, [l1, MEET]);
@@ -1575,11 +1581,11 @@ async function checkAppSprint7Flow() {
         (select hold_status from public.payments where id = $1) hold,
         (select sum(amount_kes)::int from public.ledger_entries where booking_id = $2 and account = 'teacher_payable') net`, [pp.id, l1]);
     ok('one lesson released (teacher 1,368); 12,600 still held for the rest', rel.held === 12600 && rel.hold === 'held' && rel.net === 1368, rel);
-    const [{ book_from_package: l2 }] = await act('authenticated', G, `select public.book_from_package($1, now() + interval '4 days', 'online')`, [pk.id]);
+    const [{ book_from_package: l2 }] = await act('authenticated', G, `select public.book_from_package($1, now() + interval '11 days', 'online')`, [pk.id]);
     await act('authenticated', T, `select public.teacher_respond_booking($1, false, null, 'Away that week')`, [l2]);
     const [dec] = await act('postgres', null, `select b.status, p.sessions_used, private.held_balance($3) held from public.bookings b, public.packages p where b.id = $1 and p.id = $2`, [l2, pk.id, pp.id]);
     ok('declined: the lesson goes back into the package, no money moves', dec.status === 'cancelled' && dec.sessions_used === 1 && dec.held === 12600, dec);
-    const [{ book_from_package: l3 }] = await act('authenticated', G, `select public.book_from_package($1, now() + interval '5 days', 'online')`, [pk.id]);
+    const [{ book_from_package: l3 }] = await act('authenticated', G, `select public.book_from_package($1, now() + interval '12 days', 'online')`, [pk.id]);
     await act('authenticated', T, `select public.teacher_respond_booking($1, true, $2, null)`, [l3, MEET]);
     const [{ cancel_booking: c3 }] = await act('authenticated', G, `select public.cancel_booking($1, null)`, [l3]);
     ok('cancelled in time: back in the package', c3 === 'credited' && (await act('postgres', null, `select sessions_used u from public.packages where id = $1`, [pk.id]))[0].u === 1, c3);
@@ -1612,5 +1618,115 @@ async function checkAppSprint7Flow() {
     ok('the whole ledger balances', tot.d === 0, tot.d);
   } catch (e) {
     if (!/^sprint 7:/.test(e?.message ?? '')) fail('sprint 7: flow stopped', e.message);
+  }
+}
+
+
+// ---------------------------------------------------------------------------- sprint 8: hardening
+async function checkHardening() {
+  const L = 'd1111111-1111-1111-1111-111111111111';
+  const L2 = 'd2222222-2222-2222-2222-222222222222';
+  const T = 'd3333333-3333-3333-3333-333333333333';
+  const F = 'd4444444-4444-4444-4444-444444444444';
+  const step = async (name, fn) => {
+    try {
+      const r = await fn();
+      pass(`hardening: ${name}`);
+      return r;
+    } catch (e) {
+      fail(`hardening: ${name}`, e.message);
+      throw e;
+    }
+  };
+  const ok = (name, cond, detail) => (cond ? pass(`hardening: ${name}`) : fail(`hardening: ${name}`, JSON.stringify(detail)));
+  const err = (name, role, sub, sql, pattern) => expectError(`hardening: ${name}`, role, sub, q(sql), pattern);
+  // A staff call with explicit JWT claims (aal1 or aal2).
+  const withAal = async (sub, aal, sql) => {
+    await db.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub, role: 'authenticated', aal })]);
+    await db.exec('set role authenticated');
+    try {
+      return (await db.query(sql)).rows;
+    } finally {
+      await db.exec('reset role').catch(() => {});
+    }
+  };
+  try {
+    await act('postgres', null, `insert into auth.users (id, email, phone, raw_user_meta_data) values
+      ($1, 'h1@koobi.test', '254711000041', '{"display_name": "Hana One"}'), ($2, 'h2@koobi.test', '254711000042', '{"display_name": "Hassan Two"}'),
+      ($3, 'ht@koobi.test', '254722000043', '{"display_name": "Halima Teacher"}'), ($4, 'hf@koobi.test', null, '{"display_name": "Hilda Finance"}')`, [L, L2, T, F]);
+    await act('postgres', null, `insert into public.user_roles (user_id, role) values ($1, 'learner'), ($2, 'learner'), ($3, 'teacher'), ($4, 'finance')`, [L, L2, T, F]);
+    const [teacher] = await act('authenticated', T, `insert into public.teachers (user_id, slug, display_name) values ($1, 'halima-teacher', 'Halima Teacher') returning id`, [T]);
+
+    // ---- price bands and snapshots
+    await err('an offer outside the price band is refused', 'authenticated', T, `insert into public.offerings (teacher_id, title, summary, category, track, format, subject_text,
+        modes, meeting_tool, duration_minutes, price_hour_kes, language_codes)
+      values ('${teacher.id}', 'Maths', 'x', 'school_academic', 'school', 'one_to_one', 'Maths', '{online}', 'google_meet', 60, 6000, '{en}')`, /between KES 500 and KES 5000/);
+    const [bands] = await act('authenticated', T, `select public.price_bands() b`);
+    ok('teachers can read the bands for the editor', bands.b.school.max === 5000 && bands.b.adults_professional.min === 700, bands);
+    const [offer] = await act('postgres', null, `insert into public.offerings (teacher_id, title, summary, category, track, format, subject_text,
+        modes, meeting_tool, duration_minutes, price_hour_kes, trial_discount_pct, language_codes)
+      values ($1, 'KCSE Physics', 'x', 'school_academic', 'school', 'one_to_one', 'Physics', '{online}', 'google_meet', 60, 1800, 50, '{en}') returning id`, [teacher.id]);
+    for (const [tbl, id] of [['teachers', teacher.id], ['offerings', offer.id]]) {
+      await act('postgres', null, `update public.${tbl} set listing_status = 'pending_review' where id = $1`, [id]);
+      await act('postgres', null, `update public.${tbl} set listing_status = 'approved' where id = $1`, [id]);
+    }
+    const [snap] = await act('postgres', null, `select count(*)::int c, max(version) v, (array_agg(data ->> 'price_hour_kes'))[1] p from public.listing_snapshots where offering_id = $1`, [offer.id]);
+    ok('approval keeps a snapshot of the offer as approved', snap.c === 1 && snap.v === 1 && snap.p === '1800', snap);
+    const [l1] = await act('authenticated', L, `insert into public.learners (user_id, alias) values ($1, 'Hana') returning id`, [L]);
+    const [l2] = await act('authenticated', L2, `insert into public.learners (user_id, alias) values ($1, 'Hassan') returning id`, [L2]);
+    const book = (sub, learner, at) => act('authenticated', sub, `insert into public.bookings (offering_id, learner_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)
+      values ($1, $2, 'single', 'online', ${at}, 'cancellation-2026-11-v1', now()) returning id, listing_snapshot_id`, [offer.id, learner]);
+    const [b1] = await step('a learner books Thursday at the slot time', () => book(L, l1.id, `date_trunc('hour', now()) + interval '3 days'`));
+    ok('the booking points at the approved snapshot', !!b1.listing_snapshot_id, b1);
+    const seen = await act('authenticated', L, `select id from public.listing_snapshots where id = $1`, [b1.listing_snapshot_id]);
+    const other = await act('authenticated', L2, `select id from public.listing_snapshots where id = $1`, [b1.listing_snapshot_id]);
+    ok('the payer can read what they booked; another learner cannot', seen.length === 1 && other.length === 0, { seen, other });
+
+    // ---- double-booking
+    await err('a second learner cannot take the same hour', 'authenticated', L2, `insert into public.bookings (offering_id, learner_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)
+      values ('${offer.id}', '${l2.id}', 'single', 'online', date_trunc('hour', now()) + interval '3 days' + interval '30 minutes', 'cancellation-2026-11-v1', now())`, /just taken/);
+    await step('the next free hour is fine', () => book(L2, l2.id, `date_trunc('hour', now()) + interval '3 days' + interval '1 hour'`));
+
+    // ---- booking states only through actions
+    await act('authenticated', L, `update public.bookings set status = 'awaiting_payment' where id = $1`, [b1.id]);
+    const [p1] = await act('authenticated', L, `insert into public.payments (booking_id, method) values ($1, 'mpesa_stk') returning id`, [b1.id]);
+    await act('service_role', null, `select public.record_payment_success($1, 'ps_h_1', 0, null)`, [p1.id]);
+    await err('a teacher cannot accept without the accept action (no link check)', 'authenticated', T, `update public.bookings set status = 'accepted' where id = '${b1.id}'`, /booking actions/);
+
+    // ---- no direct writes to money and decisions
+    await err('Finance cannot approve a payout by hand', 'authenticated', F, `update public.payouts set status = 'approved'`, /permission denied/);
+    await err('Finance cannot approve a batch by hand', 'authenticated', F, `update public.payout_batches set status = 'approved'`, /permission denied/);
+    await err('Finance cannot create a refund by hand', 'authenticated', F, `insert into public.refunds (payment_id, amount_kes, reason) values ('${p1.id}', 100, 'test')`, /permission denied/);
+    await err('nobody edits a parameter in place', 'authenticated', F, `update public.parameters set value = '0.05' where key = 'commission_rate_trial'`, /permission denied/);
+    await err('a payer cannot open a dispute without the action', 'authenticated', L, `insert into public.disputes (booking_id, type, description) values ('${b1.id}', 'quality', 'Testing direct insert')`, /permission denied/);
+
+    // ---- abandoned checkouts
+    const [b3] = await book(L, l1.id, `date_trunc('hour', now()) + interval '6 days'`);
+    await act('postgres', null, `update public.bookings set created_at = now() - interval '25 hours' where id = $1`, [b3.id]);
+    const [{ job_release_abandoned: freed }] = await step('the cleanup job runs', () => act('postgres', null, `select private.job_release_abandoned()`));
+    const [st] = await act('postgres', null, `select status, cancellation_rule from public.bookings where id = $1`, [b3.id]);
+    ok('an unpaid checkout older than a day frees the slot; paid ones stay', freed === 1 && st.status === 'cancelled'
+      && (await act('postgres', null, `select status from public.bookings where id = $1`, [b1.id]))[0].status === 'paid', { freed, st });
+
+    // ---- staff MFA in the database
+    await act('postgres', null, `insert into public.parameters (key, value, effective_from, note) values ('staff_mfa_required', 'true', now(), 'production')`);
+    const without = await withAal(F, 'aal1', `select public.has_role('finance') ok, public.is_staff() staff`);
+    ok('with MFA required, a staff session without the second factor has no staff rights', without[0].ok === false && without[0].staff === false, without);
+    let blocked = false;
+    try {
+      await db.exec('savepoint mfa');
+      await withAal(F, 'aal1', `select public.pilot_metrics(null)`);
+    } catch {
+      blocked = true;
+    } finally {
+      await db.exec('rollback to savepoint mfa; release savepoint mfa');
+    }
+    ok('staff functions refuse it', blocked, null);
+    const withMfa = await withAal(F, 'aal2', `select public.has_role('finance') ok, (public.pilot_metrics(null) -> 'metrics') is not null m`);
+    ok('the same person with the second factor gets staff rights', withMfa[0].ok === true && withMfa[0].m === true, withMfa);
+    const learnerAal1 = await withAal(L, 'aal1', `select public.has_role('learner') ok`);
+    ok('learners and teachers are not affected', learnerAal1[0].ok === true, learnerAal1);
+  } catch (e) {
+    if (!/^hardening:/.test(e?.message ?? '')) fail('hardening: flow stopped', e.message);
   }
 }

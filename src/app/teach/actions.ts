@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   CATEGORY_TRACKS,
   EMPLOYMENT_DECLARATION_VERSION,
+  PRICE_BANDS,
   blocksSubmission,
   parseOfferForm,
   parseTeacherForm,
@@ -13,7 +14,7 @@ import {
 import type { ListingState } from "@/domain/listing";
 import { hasSupabase } from "@/lib/supabase/config";
 import { serverClient } from "@/lib/supabase/server";
-import { getCounties, getMyTeacher } from "@/lib/data/listings";
+import { getCounties, getMyTeacher, getPriceBands } from "@/lib/data/listings";
 
 export type ActionState = { errors?: Record<string, string>; error?: string; values?: Record<string, string | string[]> };
 
@@ -116,7 +117,7 @@ export async function saveOffer(_: ActionState, form: FormData): Promise<ActionS
   if (!hasSupabase) return NOT_CONNECTED;
   const teacher = await getMyTeacher();
   if (!teacher) redirect("/teach/apply");
-  const parsed = parseOfferForm(form);
+  const parsed = parseOfferForm(form, { ...PRICE_BANDS, ...(await getPriceBands()) });
   if (!parsed.values) return { errors: parsed.errors, values: echo(form) };
   const v = parsed.values;
   const id = String(form.get("id") ?? "");

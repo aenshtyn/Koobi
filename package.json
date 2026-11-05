@@ -10,8 +10,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:check": "node scripts/check-migrations.mjs",
-    "check": "npm run lint && npm run typecheck && npm test",
-    "test-users": "node --env-file=.env.local scripts/test-users.mjs"
+    "check": "npm run lint && npm run typecheck && npm test && npm run db:check",
+    "test-users": "node --env-file=.env.local scripts/test-users.mjs",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
@@ -24,6 +25,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.15",
+    "@playwright/test": "^1.49.1",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^22.20.5",
     "@types/react": "^19",

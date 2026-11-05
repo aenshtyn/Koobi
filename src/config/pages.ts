@@ -140,7 +140,8 @@ export const PAGES: PageSpec[] = [
   p("S22", "staff", "Admin", "Message templates", "/staff/templates", 7, "SMS, WhatsApp and email wording.", B),
   p("S23", "staff", "Admin", "Staff and roles", "/staff/users", 7, "Concierge, reviewer, finance, admin.", B),
   p("S24", "staff", "Admin", "Audit log", "/staff/audit", 7, "Every sensitive read and write.", B),
-  p("S25", "staff", "Admin", "Pilot metrics", "/staff/reports/pilot", 7, "The six pilot thresholds, weekly.", B),
+  p("S25", "staff", "Admin", "Pilot metrics", "/staff/reports/pilot", 7, "The seven pilot decision metrics with thresholds.", B),
+  p("S27", "staff", "Admin", "Launch readiness", "/staff/readiness", 8, "Keys, MFA, reconciliation, policies and the manual launch list.", B),
   p("S26", "staff", "Admin", "Reports", "/staff/reports", null, "Operations, finance and teacher reports.", V1),
 
   // 6 · System
