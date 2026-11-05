@@ -22,6 +22,10 @@ jobs:
         run: npm run db:check
       - name: Content lint (no "tutor", no "holiday tuition", no hard-coded ratings in pages)
         run: |
-          ! grep -rniE '\btutors?\b|holiday tuition' src --include=*.tsx --include=*.ts --exclude-dir=fixtures | grep -v 'never "tutor"' | grep -v '// content-lint-ok'
-          ! grep -rnE 'rating_avg: [0-9]|[0-9]\.[0-9] ?★' src/app src/components
+          if grep -rniE '\btutors?\b|holiday tuition' src --include='*.ts' --include='*.tsx'; then
+            echo "::error::Forbidden copy: never 'tutor' or 'holiday tuition'"; exit 1
+          fi
+          if grep -rnE 'rating_avg: [0-9]' src/app src/components; then
+            echo "::error::Ratings must come from stored records, not page code"; exit 1
+          fi
       - run: npm run build
