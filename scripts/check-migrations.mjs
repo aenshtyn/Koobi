@@ -107,6 +107,13 @@ async function main() {
   } finally {
     await db.exec('rollback');
   }
+
+  await db.exec('begin');
+  try {
+    await checkAppBookingFlow();
+  } finally {
+    await db.exec('rollback');
+  }
 }
 
 // ---------------------------------------------------------------------------- helpers
@@ -823,6 +830,130 @@ async function checkAppMatchingFlow() {
     back.status === 'triaged' ? pass('matching: the request goes back to the concierge') : fail('matching: decline state', back.status);
     await expectError('matching: a declined teacher cannot be re-sent on the same request', 'authenticated', C,
       q(`select public.send_shortlist('${req2.id}', 5, null, '[{"offering_id": "${offer.id}", "rank": 1, "reason": "again"}]')`), /already answered/);
+  } catch {
+    // reported above
+  }
+}
+
+
+// ---------------------------------------------------------------------------- app flow: sprint 4 booking, payment hold, ledger
+async function checkAppBookingFlow() {
+  const L = '91111111-1111-1111-1111-111111111111';
+  const T = '92222222-2222-2222-2222-222222222222';
+  const step = async (name, fn) => {
+    try {
+      const r = await fn();
+      pass(`booking: ${name}`);
+      return r;
+    } catch (e) {
+      fail(`booking: ${name}`, e.message);
+      throw e;
+    }
+  };
+  const balance = async (account, user) =>
+    (await act('postgres', null, `select coalesce(sum(case when side = 'credit' then amount_kes else -amount_kes end), 0)::int v
+       from public.ledger_entries where account = $1 and ($2::uuid is null or counterparty_user_id = $2)`, [account, user]))[0].v;
+  try {
+    await act('postgres', null, `insert into auth.users (id, email, phone, raw_user_meta_data) values
+      ($1, 'bl@koobi.test', '254711000001', '{"display_name": "Bora Learner"}'), ($2, 'bt@koobi.test', '254722000002', '{"display_name": "Tess Teacher"}')`, [L, T]);
+    await act('postgres', null, `insert into public.user_roles (user_id, role) values ($1, 'learner'), ($2, 'teacher')`, [L, T]);
+    const [teacher] = await act('postgres', null, `insert into public.teachers (user_id, display_name) values ($1, 'Tess Teacher') returning id`, [T]);
+    const [offer] = await act('postgres', null, `insert into public.offerings (teacher_id, title, summary, category, track, format, subject_text,
+        modes, meeting_tool, duration_minutes, price_hour_kes, trial_discount_pct, language_codes)
+      values ($1, 'Business English', 'x', 'career_professional_growth', 'adults_professional', 'one_to_one', 'English',
+        '{online}', 'google_meet', 60, 1800, 50, '{en}') returning id`, [teacher.id]);
+    for (const [tbl, id] of [['teachers', teacher.id], ['offerings', offer.id]]) {
+      await act('postgres', null, `update public.${tbl} set listing_status = 'pending_review' where id = $1`, [id]);
+      await act('postgres', null, `update public.${tbl} set listing_status = 'approved' where id = $1`, [id]);
+    }
+    const [thread] = await act('postgres', null, `insert into public.message_threads (kind) values ('pair') returning id`);
+    await act('postgres', null, `insert into public.thread_participants (thread_id, user_id, role) values ($1, $2, 'payer'), ($1, $3, 'teacher')`, [thread.id, L, T]);
+
+    const [learner] = await step('a learner profile for the payer', () =>
+      act('authenticated', L, `insert into public.learners (user_id, alias) values ($1, 'Bora') returning id`, [L]));
+    const book = (kind, at) => act('authenticated', L, `insert into public.bookings (offering_id, learner_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)
+      values ($1, $2, $3, 'online', now() + interval '${at}', 'cancellation-2026-11-v1', now()) returning id, price_kes, discount_kes, teacher_id`, [offer.id, learner.id, kind]);
+    const [trial] = await step('a trial booking is priced by the server', () => book('trial', '3 days'));
+    trial.price_kes === 1800 && trial.discount_kes === 900 && trial.teacher_id === teacher.id
+      ? pass('booking: trial is KES 1,800 with a KES 900 discount, teacher set from the offer') : fail('booking: trial price', JSON.stringify(trial));
+
+    const pay = async (bookingId) => {
+      await act('authenticated', L, `update public.bookings set status = 'awaiting_payment' where id = $1`, [bookingId]);
+      const [p] = await act('authenticated', L, `insert into public.payments (booking_id, method) values ($1, 'mpesa_stk') returning id, amount_kes, platform_ref`, [bookingId]);
+      return p;
+    };
+    const p1 = await step('checkout creates a payment for the server amount', () => pay(trial.id));
+    p1.amount_kes === 900 ? pass('booking: the payment is KES 900 (trial price), not a client value') : fail('booking: payment amount', String(p1.amount_kes));
+    await expectError('booking: a learner cannot record their own payment', 'authenticated', L,
+      q(`select public.record_payment_success('${p1.id}', 'x', 0, null)`), /permission denied/);
+    await expectError('booking: a learner cannot mark a booking paid', 'authenticated', L,
+      q(`update public.bookings set status = 'paid' where id = '${trial.id}'`), /not allowed/);
+    await step('the provider accepts the STK push', () => act('service_role', null, `select public.mark_payment_pending($1, 'ps_ref_1')`, [p1.id]));
+    const [{ record_payment_success: first }] = await step('a verified webhook records the payment', () =>
+      act('service_role', null, `select public.record_payment_success($1, 'ps_ref_1', 14, 886)`, [p1.id]));
+    const [{ record_payment_success: again }] = await act('service_role', null, `select public.record_payment_success($1, 'ps_ref_1', 14, 886)`, [p1.id]);
+    first === true && again === false ? pass('booking: a repeated webhook changes nothing') : fail('booking: idempotency', `${first} ${again}`);
+    const [after] = await act('postgres', null, `select p.status, p.hold_status, b.status bs, b.paid_at is not null paid,
+        (select count(*)::int from public.ledger_transactions where idempotency_key = 'hold:' || p.id::text) j
+        from public.payments p join public.bookings b on b.id = p.booking_id where p.id = $1`, [p1.id]);
+    after.status === 'succeeded' && after.hold_status === 'held' && after.bs === 'paid' && after.paid && after.j === 1
+      ? pass('booking: payment succeeded and held, booking paid, one hold journal') : fail('booking: after payment', JSON.stringify(after));
+    const legs = Object.fromEntries((await act('postgres', null, `select account::text a, sum(case when side = 'credit' then amount_kes else -amount_kes end)::int v
+       from public.ledger_entries where payment_id = $1 group by account`, [p1.id])).map((r) => [r.a, r.v]));
+    const held = legs.client_funds_held, cash = legs.cash_provider, fees = legs.expense_payment_fees;
+    held === 900 && cash === -886 && fees === -14 ? pass('booking: ledger holds KES 900 for the payer; cash 886 plus fee 14')
+      : fail('booking: hold ledger', JSON.stringify({ held, cash, fees }));
+    const [rev] = await act('postgres', null, `select contact_revealed_at is not null r from public.message_threads where id = $1`, [thread.id]);
+    const [contact] = await act('authenticated', L, `select public.thread_contact($1) c`, [thread.id]);
+    rev.r && contact.c === '+254722000002' ? pass("booking: the first paid booking reveals the pair's numbers") : fail('booking: reveal', JSON.stringify({ rev, contact }));
+
+    await expectError('booking: an online lesson needs a Meet or Zoom link', 'authenticated', T,
+      q(`select public.teacher_respond_booking('${trial.id}', true, 'https://example.com/x', null)`), /Google Meet or Zoom/);
+    await expectError('booking: only the booking teacher can respond', 'authenticated', L,
+      q(`select public.teacher_respond_booking('${trial.id}', true, 'https://meet.google.com/abc-defg-hij', null)`), /not your booking/);
+    await step('the teacher accepts with a Meet link', () =>
+      act('authenticated', T, `select public.teacher_respond_booking($1, true, 'https://meet.google.com/abc-defg-hij', null)`, [trial.id]));
+    const [sched] = await act('postgres', null, `select b.status, b.accepted_at is not null acc, (select count(*)::int from public.sessions where booking_id = b.id) s
+      from public.bookings b where b.id = $1`, [trial.id]);
+    sched.status === 'scheduled' && sched.acc && sched.s === 1 ? pass('booking: scheduled with one session') : fail('booking: scheduled', JSON.stringify(sched));
+
+    const [single] = await book('single', '4 days');
+    const p2 = await pay(single.id);
+    await act('service_role', null, `select public.record_payment_success($1, 'ps_ref_2', 27, null)`, [p2.id]);
+    await expectError('booking: declining needs a reason', 'authenticated', T, q(`select public.teacher_respond_booking('${single.id}', false, null, '')`), /why/);
+    await step('the teacher declines with a reason', () =>
+      act('authenticated', T, `select public.teacher_respond_booking($1, false, null, 'Away that week')`, [single.id]));
+    const [dec] = await act('postgres', null, `select b.status, b.cancelled_by_role, p.hold_status from public.bookings b join public.payments p on p.booking_id = b.id where b.id = $1`, [single.id]);
+    const credits = await balance('guardian_credits', L);
+    dec.status === 'cancelled' && dec.cancelled_by_role === 'teacher' && dec.hold_status === 'credited' && credits === 1800
+      ? pass('booking: declined, the KES 1,800 hold becomes the payer’s credit') : fail('booking: decline', JSON.stringify({ dec, credits }));
+
+    const [late] = await book('single', '5 days');
+    const p3 = await pay(late.id);
+    await act('service_role', null, `select public.record_payment_success($1, 'ps_ref_3', 27, null)`, [p3.id]);
+    await act('postgres', null, `update public.bookings set paid_at = now() - interval '13 hours' where id = $1`, [late.id]);
+    await step('unanswered bookings lapse after the response window', () => act('postgres', null, `select private.job_lapse_unanswered_bookings()`));
+    const [lap] = await act('postgres', null, `select b.status, p.hold_status from public.bookings b join public.payments p on p.booking_id = b.id where b.id = $1`, [late.id]);
+    lap.status === 'lapsed' && lap.hold_status === 'credited' ? pass('booking: lapsed and credited') : fail('booking: lapse', JSON.stringify(lap));
+
+    const [retry] = await book('single', '6 days');
+    const p4 = await pay(retry.id);
+    await act('service_role', null, `select public.mark_payment_pending($1, 'ps_ref_4')`, [p4.id]);
+    await act('service_role', null, `select public.record_payment_failure($1, 'Cancelled on the phone')`, [p4.id]);
+    const [fl] = await act('postgres', null, `select p.status, b.status bs from public.payments p join public.bookings b on b.id = p.booking_id where p.id = $1`, [p4.id]);
+    const p5 = await act('authenticated', L, `insert into public.payments (booking_id, method) values ($1, 'mpesa_stk') returning id`, [retry.id]).catch((e) => e);
+    fl.status === 'failed' && fl.bs === 'awaiting_payment' && Array.isArray(p5)
+      ? pass('booking: a failed payment charges nothing and the payer can try again') : fail('booking: failure and retry', JSON.stringify({ fl, p5: String(p5) }));
+
+    const mine = await act('authenticated', L, `select id, status, meeting_link, teacher_name from public.my_bookings()`);
+    const teach = await act('authenticated', T, `select id, status, learner_alias, payer_first_name from public.my_teaching_bookings()`);
+    const sch = mine.find((b) => b.id === trial.id);
+    mine.length === 4 && sch?.meeting_link === 'https://meet.google.com/abc-defg-hij' && sch?.teacher_name === 'Tess Teacher'
+      ? pass('booking: the payer lists all four bookings, with the link once scheduled') : fail('booking: my_bookings', JSON.stringify(mine));
+    teach.length === 3 && !teach.some((b) => b.id === retry.id) && teach[0].learner_alias === 'Bora' && teach[0].payer_first_name === 'Bora'
+      ? pass('booking: the teacher lists paid bookings only, with alias and first name') : fail('booking: my_teaching_bookings', JSON.stringify(teach));
+    const [tot] = await act('postgres', null, `select coalesce(sum(case when side = 'debit' then amount_kes else -amount_kes end), 0)::int d from public.ledger_entries`);
+    tot.d === 0 ? pass('booking: the whole ledger balances') : fail('booking: ledger balance', String(tot.d));
   } catch {
     // reported above
   }

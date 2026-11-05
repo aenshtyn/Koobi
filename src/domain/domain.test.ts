@@ -74,3 +74,21 @@ describe("formatting", () => {
     expect(normaliseKenyanPhone("12345")).toBeNull();
   });
 });
+
+import { bookableSlots, isAllowedMeetingLink } from "./booking";
+
+describe("booking rules", () => {
+  it("only offers slots at least two hours ahead", () => {
+    const now = new Date("2026-11-09T12:00:00Z");
+    expect(bookableSlots(["2026-11-09T13:00:00Z", "2026-11-09T14:00:00Z", "2026-11-10T09:00:00Z"], now)).toEqual([
+      "2026-11-09T14:00:00Z",
+      "2026-11-10T09:00:00Z",
+    ]);
+  });
+  it("accepts Google Meet and Zoom links only", () => {
+    expect(isAllowedMeetingLink("https://meet.google.com/abc-defg-hij")).toBe(true);
+    expect(isAllowedMeetingLink("https://us02web.zoom.us/j/123456789?pwd=abc")).toBe(true);
+    expect(isAllowedMeetingLink("https://example.com/meet")).toBe(false);
+    expect(isAllowedMeetingLink("http://meet.google.com/abc")).toBe(false);
+  });
+});
