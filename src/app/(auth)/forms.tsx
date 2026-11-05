@@ -1,7 +1,7 @@
 "use client";
 import { useActionState, useState } from "react";
 import { BookOpen, GraduationCap, UserRound } from "lucide-react";
-import { resendCode, saveWelcome, sendCode, verifyCode, type FormState } from "./actions";
+import { resendCode, saveWelcome, sendCode, testSignIn, verifyCode, type FormState } from "./actions";
 
 function ErrorLine({ state, id }: { state: FormState; id: string }) {
   return state.error ? (
@@ -124,6 +124,40 @@ export function WelcomeForm({ next }: { next: string }) {
       <ErrorLine state={state} id="welcome-err" />
       <button className="btn block lg" type="submit" disabled={pending}>
         {pending ? "Saving…" : "Continue"}
+      </button>
+    </form>
+  );
+}
+
+type TestAccount = { key: string; email: string; label: string; note: string };
+
+export function TestSignInForm({ accounts }: { accounts: TestAccount[] }) {
+  const [state, action, pending] = useActionState(testSignIn, {});
+  return (
+    <form action={action} className="flex flex-col gap-6">
+      <fieldset className="flex flex-col gap-2.5">
+        <legend className="label mb-2">Sign in as</legend>
+        {accounts.map((a, i) => (
+          <label key={a.key} className="reply">
+            <input type="radio" name="account" value={a.key} defaultChecked={i === 0} required />
+            <span className="flex min-w-0 flex-col">
+              <span>{a.label}</span>
+              <span className="mono text-[13px] font-normal opacity-75">{a.email}</span>
+              <span className="text-[14px] font-normal opacity-80">{a.note}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+      <div className="field">
+        <label className="label" htmlFor="test-password">
+          Test password
+        </label>
+        <input id="test-password" name="password" type="password" autoComplete="current-password" className="input" required />
+        <p className="help">The shared password in KOOBI_TEST_PASSWORD. Ask the person who ran npm run test-users.</p>
+      </div>
+      <ErrorLine state={state} id="test-err" />
+      <button className="btn block lg" type="submit" disabled={pending}>
+        {pending ? "Signing in…" : "Sign in"}
       </button>
     </form>
   );

@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:check": "node scripts/check-migrations.mjs",
-    "check": "npm run lint && npm run typecheck && npm test"
+    "check": "npm run lint && npm run typecheck && npm test",
+    "test-users": "node --env-file=.env.local scripts/test-users.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

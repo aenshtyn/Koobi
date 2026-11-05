@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { PhoneForm } from "../forms";
 import { NotConnected } from "../not-connected";
+import Link from "next/link";
+import { testLogins } from "@/lib/supabase/config";
 
 export const metadata: Metadata = { title: "Sign in" };
 
@@ -16,6 +18,11 @@ export default function SignInPage(props: PageProps<"/signin">) {
       <Suspense fallback={<div className="skeleton h-[220px]" />}>
         <Form searchParams={props.searchParams} />
       </Suspense>
+      {testLogins ? (
+        <Link className="btn2 ink" href="/signin/test">
+          Use a test account
+        </Link>
+      ) : null}
     </div>
   );
 }

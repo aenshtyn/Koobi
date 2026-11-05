@@ -1,0 +1,10 @@
+[
+  { "key": "learner", "email": "learner@koobi.test", "name": "Test Learner", "roles": ["learner"], "label": "Learner", "note": "An adult learning for themselves", "home": "/home" },
+  { "key": "guardian", "email": "guardian@koobi.test", "name": "Test Parent", "roles": ["guardian"], "label": "Parent or guardian", "note": "Books lessons for a child", "home": "/home" },
+  { "key": "teacher", "email": "teacher@koobi.test", "name": "Test Teacher", "roles": ["teacher"], "label": "Teacher or expert", "note": "Applies, drafts offers, teaches", "home": "/teach" },
+  { "key": "concierge", "email": "concierge@koobi.test", "name": "Test Concierge", "roles": ["concierge"], "label": "Concierge", "note": "Staff: requests and matching", "home": "/staff" },
+  { "key": "reviewer", "email": "reviewer@koobi.test", "name": "Test Reviewer", "roles": ["reviewer"], "label": "Reviewer", "note": "Staff: checks and listing approvals", "home": "/staff" },
+  { "key": "finance", "email": "finance@koobi.test", "name": "Test Finance", "roles": ["finance"], "label": "Finance", "note": "Staff: payouts, refunds, ledger", "home": "/staff" },
+  { "key": "admin", "email": "admin@koobi.test", "name": "Test Admin", "roles": ["admin"], "label": "Admin", "note": "Staff: everything, including settings", "home": "/staff" },
+  { "key": "new", "email": "new@koobi.test", "name": null, "roles": [], "label": "Brand-new user", "note": "No name or role yet: tests the welcome screen", "home": "/welcome" }
+]

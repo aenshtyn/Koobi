@@ -26,6 +26,28 @@ To connect Supabase, copy `.env.example` to `.env.local` and fill `NEXT_PUBLIC_S
 | `npm run db:check` | Applies every migration to an in-process Postgres (PGlite) and runs RLS and ledger assertions |
 | `npm run build` | Production build; fails if a page reads request data outside `<Suspense>` |
 
+## Test accounts (dev and staging only)
+
+One account per kind of user, signed in with a shared password at `/signin/test`:
+
+| Account | Lands on |
+|---|---|
+| `learner@koobi.test` | Learner home |
+| `guardian@koobi.test` | Learner home (parent) |
+| `teacher@koobi.test` | Teacher dashboard |
+| `concierge@`, `reviewer@`, `finance@`, `admin@koobi.test` | Staff console |
+| `new@koobi.test` | Welcome screen (no name or role; reset on every run) |
+
+1. In `.env.local` set `KOOBI_TEST_LOGINS=true` and `SUPABASE_SECRET_KEY=` (Supabase → Settings → API Keys → secret key).
+2. Run `npm run test-users`. It creates or resets the accounts and writes `KOOBI_TEST_PASSWORD` if empty.
+3. Open `/signin/test`, pick an account, enter the password. Sign out from the top bar to switch.
+
+With test logins on, staff pages skip the authenticator step. Never set `KOOBI_TEST_LOGINS` on production.
+
+## Deploy
+
+Supabase holds the database, auth and storage; Vercel hosts the website. Import `aenshtyn/Koobi` in Vercel, set the environment variables from `.env.example`, and keep functions in `fra1` (`vercel.json`), next to the Supabase project in Frankfurt.
+
 ## Layout
 
 ```

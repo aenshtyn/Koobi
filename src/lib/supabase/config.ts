@@ -10,5 +10,11 @@ export const hasSupabase = Boolean(supabaseUrl && supabaseKey);
  * development (or a preview opts in with KOOBI_DEV_SEED=true). Production without a database
  * shows empty states, never sample data (PRD FR-MATCH-6, nothing fabricated).
  */
+/**
+ * Test accounts (one per role, password sign-in at /signin/test) for dev and staging projects.
+ * Never set on production: it also relaxes the staff authenticator requirement.
+ */
+export const testLogins = process.env.KOOBI_TEST_LOGINS === "true";
+
 export const useDevSeed =
   !hasSupabase && (process.env.NODE_ENV === "development" || process.env.KOOBI_DEV_SEED === "true");

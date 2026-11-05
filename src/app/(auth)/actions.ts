@@ -2,7 +2,8 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { normaliseKenyanPhone } from "@/domain/format";
-import { hasSupabase } from "@/lib/supabase/config";
+import { hasSupabase, testLogins } from "@/lib/supabase/config";
+import TEST_ACCOUNTS from "@/config/test-accounts.json";
 import { serverClient } from "@/lib/supabase/server";
 
 export type FormState = { error?: string; ok?: boolean };
@@ -84,6 +85,26 @@ export async function saveWelcome(_: FormState, form: FormData): Promise<FormSta
   if (intent === "teach") redirect("/teach/apply");
   if (intent === "child") redirect("/account/learners/new");
   redirect(safeNext(form.get("next")));
+}
+
+/** Password sign-in for the per-role test accounts (scripts/test-users.mjs). Dev and staging only. */
+export async function testSignIn(_: FormState, form: FormData): Promise<FormState> {
+  if (!testLogins || !hasSupabase) return { error: "Test accounts are switched off in this environment." };
+  const account = TEST_ACCOUNTS.find((a) => a.key === form.get("account"));
+  const password = String(form.get("password") ?? "");
+  if (!account) return { error: "Choose an account." };
+  if (!password) return { error: "Enter the test password." };
+  const db = await serverClient();
+  await db.auth.signOut();
+  const { error } = await db.auth.signInWithPassword({ email: account.email, password });
+  if (error) {
+    return {
+      error: error.message.toLowerCase().includes("invalid")
+        ? "That did not work. Check the password, and that npm run test-users has been run for this project."
+        : `Sign-in failed: ${error.message}`,
+    };
+  }
+  redirect(account.home);
 }
 
 export async function signOut() {

@@ -1,6 +1,6 @@
 import "server-only";
 import { redirect } from "next/navigation";
-import { hasSupabase } from "@/lib/supabase/config";
+import { hasSupabase, testLogins } from "@/lib/supabase/config";
 import { serverClient } from "@/lib/supabase/server";
 
 export type Role = "guardian" | "learner" | "teacher" | "concierge" | "reviewer" | "finance" | "admin";
@@ -44,10 +44,19 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   };
 }
 
-/** Signed-in guard for a page. `next` is where to return after sign-in. */
+/**
+ * Signed-in guard for a page. `next` is where to return after sign-in.
+ * Staff-only pages also need the authenticator step (AAL2), except with test logins on.
+ */
 export async function requireUser(next: string, opts: { anyOf?: Role[] } = {}): Promise<SessionUser> {
   const user = await getSessionUser();
-  if (!user) redirect(`/signin?next=${encodeURIComponent(next)}`);
+  const staffOnly = !!opts.anyOf?.length && opts.anyOf.every((r) => STAFF_ROLES.includes(r));
+  if (!user) redirect(staffOnly ? "/staff/login" : `/signin?next=${encodeURIComponent(next)}`);
   if (opts.anyOf && !opts.anyOf.some((r) => user.roles.includes(r))) redirect("/forbidden");
+  if (staffOnly && !user.dev && !testLogins) {
+    const db = await serverClient();
+    const { data } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (data?.currentLevel !== "aal2") redirect("/staff/login");
+  }
   return user;
 }
