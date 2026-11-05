@@ -128,6 +128,13 @@ async function main() {
   } finally {
     await db.exec('rollback');
   }
+
+  await db.exec('begin');
+  try {
+    await checkAppSprint7Flow();
+  } finally {
+    await db.exec('rollback');
+  }
 }
 
 // ---------------------------------------------------------------------------- helpers
@@ -1449,5 +1456,161 @@ async function checkAppPayoutFlow() {
     ok('the whole ledger balances', tot.d === 0, tot.d);
   } catch (e) {
     if (!/^payouts:/.test(e?.message ?? '')) fail('payouts: flow stopped', e.message);
+  }
+}
+
+
+// ---------------------------------------------------------------------------- app flow: sprint 7 notifications, children, packages, admin
+async function checkAppSprint7Flow() {
+  const G = 'c1111111-1111-1111-1111-111111111111'; // parent
+  const T = 'c2222222-2222-2222-2222-222222222222'; // teacher
+  const A = 'c3333333-3333-3333-3333-333333333333'; // admin
+  const F = 'c4444444-4444-4444-4444-444444444444'; // finance
+  const R = 'c5555555-5555-5555-5555-555555555555'; // reviewer
+  const MEET = 'https://meet.google.com/abc-defg-hij';
+  const ENC = 'v1:test-ciphertext-0000000000';
+  const step = async (name, fn) => {
+    try {
+      const r = await fn();
+      pass(`sprint 7: ${name}`);
+      return r;
+    } catch (e) {
+      fail(`sprint 7: ${name}`, e.message);
+      throw e;
+    }
+  };
+  const ok = (name, cond, detail) => (cond ? pass(`sprint 7: ${name}`) : fail(`sprint 7: ${name}`, JSON.stringify(detail)));
+  const err = (name, role, sub, sql, pattern) => expectError(`sprint 7: ${name}`, role, sub, q(sql), pattern);
+  const notes = async (user, template) => (await act('postgres', null, `select channel, status from public.notifications where user_id = $1 and template = $2 order by channel`, [user, template]));
+  try {
+    await act('postgres', null, `insert into auth.users (id, email, phone, raw_user_meta_data) values
+      ($1, 'parent@koobi.test', '254711000031', '{"display_name": "Wanjiru Parent"}'), ($2, null, '254722000032', '{"display_name": "Otieno Teacher"}'),
+      ($3, 'admin7@koobi.test', null, '{"display_name": "Ada Admin"}'), ($4, 'fin7@koobi.test', null, '{"display_name": "Faith Finance"}'),
+      ($5, 'rev7@koobi.test', null, '{"display_name": "Rose Reviewer"}')`, [G, T, A, F, R]);
+    await act('postgres', null, `insert into public.user_roles (user_id, role) values ($1, 'teacher'), ($2, 'admin'), ($3, 'finance'), ($4, 'reviewer')`, [T, A, F, R]);
+    const [teacher] = await act('authenticated', T, `insert into public.teachers (user_id, slug, display_name) values ($1, 'otieno-teacher', 'Otieno Teacher') returning id`, [T]);
+    const [offer] = await act('postgres', null, `insert into public.offerings (teacher_id, title, summary, category, track, format, subject_text,
+        modes, meeting_tool, duration_minutes, price_hour_kes, trial_discount_pct, language_codes)
+      values ($1, 'KCSE Chemistry', 'x', 'school_academic', 'school', 'one_to_one', 'Chemistry',
+        '{online,in_home}', 'google_meet', 60, 1800, 50, '{en}') returning id`, [teacher.id]);
+    for (const [tbl, id] of [['teachers', teacher.id], ['offerings', offer.id]]) {
+      await act('postgres', null, `update public.${tbl} set listing_status = 'pending_review' where id = $1`, [id]);
+      await act('postgres', null, `update public.${tbl} set listing_status = 'approved' where id = $1`, [id]);
+    }
+
+    // ---- a child, consent first
+    await step('a parent sets up a parent account', () => act('authenticated', G, `select public.become_guardian('Wanjiru')`));
+    await err('no child without the consent', 'authenticated', G, `select public.add_child('Amani', 2011, null, null, null, null, 'x')`, /consent/);
+    const [{ add_child: child }] = await step('the parent adds a child with consent', () =>
+      act('authenticated', G, `select public.add_child('Amani', 2011, null, null, 'en', null, 'parental-consent-2026-11-v1')`));
+    const [kid] = await act('postgres', null, `select is_minor, consent_status from public.learners where id = $1`, [child]);
+    ok('the child is a minor with active consent', kid.is_minor === true && kid.consent_status === 'active', kid);
+    const book = (mode, at) => act('authenticated', G, `insert into public.bookings (offering_id, learner_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)
+      values ($1, $2, 'single', $3, now() + interval '${at}', 'cancellation-2026-11-v1', now()) returning id`, [offer.id, child, mode]);
+    await err('in person needs the parent’s ID check', 'authenticated', G, `insert into public.bookings (offering_id, learner_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)
+      values ('${offer.id}', '${child}', 'single', 'in_home', now() + interval '3 days', 'cancellation-2026-11-v1', now())`, /ID check/);
+    const [ob] = await step('an online lesson for the child is fine', () => book('online', '3 days'));
+
+    // ---- notifications follow the events
+    await act('authenticated', G, `update public.bookings set status = 'awaiting_payment' where id = $1`, [ob.id]);
+    const [pay] = await act('authenticated', G, `insert into public.payments (booking_id, method) values ($1, 'mpesa_stk') returning id`, [ob.id]);
+    await act('service_role', null, `select public.record_payment_success($1, 'ps_s7_1', 27, null)`, [pay.id]);
+    const tn = await notes(T, 'booking_paid_teacher');
+    const rc = await notes(G, 'receipt');
+    ok('paid: the teacher gets an in-app and an SMS message, the parent an in-app and an email receipt',
+      tn.map((x) => x.channel).join() === 'in_app,sms' && tn.find((x) => x.channel === 'sms').status === 'queued' && rc.map((x) => x.channel).join() === 'email,in_app', { tn, rc });
+    await act('authenticated', T, `select public.teacher_respond_booking($1, true, $2, null)`, [ob.id, MEET]);
+    const acc = await notes(G, 'booking_accepted');
+    ok('accepted: the parent is told', acc.length === 2, acc);
+    const [pb] = await act('postgres', null, `select payload from public.notifications where user_id = $1 and template = 'booking_accepted' and channel = 'sms'`, [G]);
+    ok('messages carry allow-listed fields only: first names and alias, never phone numbers', !JSON.stringify(pb.payload).includes('2547') && pb.payload.learner === 'Amani' && pb.payload.teacher === 'Otieno', pb);
+    await act('authenticated', T, `insert into public.notification_preferences (user_id, sms_enabled) values ($1, false)`, [T]);
+    await act('postgres', null, `update public.sessions set starts_at = now() + interval '60 minutes', ends_at = now() + interval '120 minutes' where booking_id = $1`, [ob.id]);
+    await act('postgres', null, `select private.job_scheduled_notifications()`);
+    await act('postgres', null, `select private.job_scheduled_notifications()`);
+    const rem = await act('postgres', null, `select user_id, channel from public.notifications where template = 'reminder_1h' order by user_id, channel`);
+    ok('an hour before: both sides reminded once; the teacher who turned SMS off gets in-app only',
+      rem.length === 3 && rem.filter((x) => x.user_id === T).map((x) => x.channel).join() === 'in_app', rem);
+    await err('only the dispatcher claims messages', 'authenticated', G, `select * from public.claim_notifications(10)`, /permission denied/);
+    const claimed = await step('the dispatcher claims queued messages', () => act('service_role', null, `select id, channel from public.claim_notifications(50)`));
+    ok('only outside channels are claimed, each once', claimed.length >= 3 && claimed.every((x) => x.channel !== 'in_app')
+      && (await act('service_role', null, `select * from public.claim_notifications(50)`)).length === 0, claimed);
+    await step('the parent marks notifications read', () => act('authenticated', G, `select public.mark_notifications_read()`));
+
+    // ---- the parent's ID unlocks in-person lessons
+    const [{ start_guardian_check: gc }] = await act('authenticated', G, `select public.start_guardian_check()`);
+    await err('the ID check needs both photos', 'authenticated', G, `select public.submit_guardian_check('${gc}', '${ENC}')`, /upload/);
+    await act('authenticated', G, `insert into public.guardian_documents (check_id, storage_key, kind) values ($1, 'guardian/x/front.jpg', 'id_front'), ($1, 'guardian/x/selfie.jpg', 'selfie')`, [gc]);
+    await step('the parent sends the ID check', () => act('authenticated', G, `select public.submit_guardian_check($1, $2)`, [gc, ENC]));
+    await err('the parent cannot pass their own check', 'authenticated', G, `select public.review_guardian_check('${gc}', true, 'ok', 2)`, /reviewers only/);
+    await step('a reviewer passes it', () => act('authenticated', R, `select public.review_guardian_check($1, true, 'Photo matches the ID', 3)`, [gc]));
+    await step('in person is now allowed for the child', () => book('in_home', '5 days'));
+    await step('the parent withdraws consent', () => act('authenticated', G, `select public.withdraw_consent($1)`, [child]));
+    await err('no new bookings for the child after consent is withdrawn', 'authenticated', G, `insert into public.bookings (offering_id, learner_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)
+      values ('${offer.id}', '${child}', 'single', 'online', now() + interval '6 days', 'cancellation-2026-11-v1', now())`, /consent/);
+    await act('authenticated', G, `insert into public.consents (guardian_id, learner_id, text_version, channel)
+      values ((select id from public.guardians where user_id = $1), $2, 'parental-consent-2026-11-v1', 'web')`, [G, child]);
+
+    // ---- a package, released lesson by lesson
+    const [pk] = await step('the parent chooses an 8-lesson package', () => act('authenticated', G, `insert into public.packages (learner_id, offering_id, sessions_total, cadence_per_week)
+      values ($1, $2, 8, 2) returning id, price_kes, ends_on - starts_on as days`, [child, offer.id]));
+    ok('priced by the server at 8 × 1,800, valid 4 weeks plus 2 weeks grace', pk.price_kes === 14400 && pk.days === 42, pk);
+    const [pp] = await act('authenticated', G, `insert into public.payments (package_id, method) values ($1, 'mpesa_stk') returning id, amount_kes`, [pk.id]);
+    await act('service_role', null, `select public.record_payment_success($1, 'ps_s7_pk', 0, null)`, [pp.id]);
+    ok('the package is active and KES 14,400 is held', pp.amount_kes === 14400 && (await act('postgres', null, `select status from public.packages where id = $1`, [pk.id]))[0].status === 'active', pp);
+    await err('someone else cannot book from the package', 'authenticated', T, `select public.book_from_package('${pk.id}', now() + interval '3 days', 'online')`, /not your package/);
+    const [{ book_from_package: l1 }] = await step('the parent books a lesson from the package', () =>
+      act('authenticated', G, `select public.book_from_package($1, now() + interval '3 days', 'online')`, [pk.id]));
+    const [b1] = await act('postgres', null, `select status, kind, price_kes, (select sessions_used from public.packages where id = $2) used from public.bookings where id = $1`, [l1, pk.id]);
+    ok('paid from the package: KES 1,800 a lesson, one used', b1.status === 'paid' && b1.kind === 'package_session' && b1.price_kes === 1800 && b1.used === 1, b1);
+    await act('authenticated', T, `select public.teacher_respond_booking($1, true, $2, null)`, [l1, MEET]);
+    const [s1] = await act('postgres', null, `select id from public.sessions where booking_id = $1`, [l1]);
+    await act('postgres', null, `update public.bookings set starts_at = now() - interval '5 minutes' where id = $1`, [l1]);
+    await act('postgres', null, `update public.sessions set starts_at = now() - interval '5 minutes', ends_at = now() + interval '55 minutes' where id = $1`, [s1.id]);
+    await act('authenticated', T, `select public.teacher_check_in($1)`, [s1.id]);
+    await act('authenticated', T, `select public.teacher_check_out($1)`, [s1.id]);
+    await act('authenticated', T, `select public.file_lesson_note($1, 'Mole concept and titration', null, null)`, [s1.id]);
+    await step('the parent confirms the package lesson', () => act('authenticated', G, `select public.confirm_lesson($1)`, [l1]));
+    const [rel] = await act('postgres', null, `select private.held_balance($1) held,
+        (select hold_status from public.payments where id = $1) hold,
+        (select sum(amount_kes)::int from public.ledger_entries where booking_id = $2 and account = 'teacher_payable') net`, [pp.id, l1]);
+    ok('one lesson released (teacher 1,368); 12,600 still held for the rest', rel.held === 12600 && rel.hold === 'held' && rel.net === 1368, rel);
+    const [{ book_from_package: l2 }] = await act('authenticated', G, `select public.book_from_package($1, now() + interval '4 days', 'online')`, [pk.id]);
+    await act('authenticated', T, `select public.teacher_respond_booking($1, false, null, 'Away that week')`, [l2]);
+    const [dec] = await act('postgres', null, `select b.status, p.sessions_used, private.held_balance($3) held from public.bookings b, public.packages p where b.id = $1 and p.id = $2`, [l2, pk.id, pp.id]);
+    ok('declined: the lesson goes back into the package, no money moves', dec.status === 'cancelled' && dec.sessions_used === 1 && dec.held === 12600, dec);
+    const [{ book_from_package: l3 }] = await act('authenticated', G, `select public.book_from_package($1, now() + interval '5 days', 'online')`, [pk.id]);
+    await act('authenticated', T, `select public.teacher_respond_booking($1, true, $2, null)`, [l3, MEET]);
+    const [{ cancel_booking: c3 }] = await act('authenticated', G, `select public.cancel_booking($1, null)`, [l3]);
+    ok('cancelled in time: back in the package', c3 === 'credited' && (await act('postgres', null, `select sessions_used u from public.packages where id = $1`, [pk.id]))[0].u === 1, c3);
+    await err('the monthly plan needs a first month in person', 'authenticated', G, `insert into public.packages (learner_id, offering_id, sessions_total, plan_type, cadence_per_week)
+      values ('${child}', '${offer.id}', 8, 'managed', 2)`, /first month/);
+    await act('postgres', null, `update public.packages set starts_on = current_date - 43, ends_on = current_date - 1 where id = $1`, [pk.id]);
+    const [{ job_expire_packages: ex }] = await step('expired packages are closed', () => act('postgres', null, `select private.job_expire_packages()`));
+    const [exp] = await act('postgres', null, `select p.status, (select hold_status from public.payments where id = $2) hold,
+        (select coalesce(sum(case when side = 'credit' then amount_kes else -amount_kes end), 0)::int from public.ledger_entries where account = 'guardian_credits' and package_id = $1) credit
+        from public.packages p where p.id = $1`, [pk.id, pp.id]);
+    ok('unused lessons became KES 12,600 of credit', ex === 1 && exp.status === 'expired' && exp.hold === 'credited' && exp.credit === 12600, exp);
+
+    // ---- data rights, roles, parameters, metrics
+    await step('the parent asks for an export', () => act('authenticated', G, `insert into public.data_requests (kind) values ('export')`));
+    const [{ my_data_export: data }] = await act('authenticated', G, `select public.my_data_export()`);
+    ok('the export holds the profile, children and bookings, not other people’s numbers',
+      data.profile.display_name === 'Wanjiru Parent' && data.learners.length === 1 && data.bookings.length >= 3 && !JSON.stringify(data).includes('254722000032'), Object.keys(data));
+    await err('only an admin grants staff roles', 'authenticated', F, `select public.set_staff_role('${R}', 'finance', true)`, /admin only/);
+    await err('nobody can self-assign a staff role', 'authenticated', G, `select public.claim_role('admin')`, /cannot be self-assigned/);
+    await step('the admin makes the reviewer a concierge too', () => act('authenticated', A, `select public.set_staff_role($1, 'concierge', true)`, [R]));
+    await err('an admin cannot remove their own admin role', 'authenticated', A, `select public.set_staff_role('${A}', 'admin', false)`, /own admin/);
+    await err('parameters never change in the past', 'authenticated', F, `select public.add_parameter('cancellation_window_hours', null, null, null, '12', now() - interval '1 day', 'Testing a shorter window')`, /past/);
+    await err('unknown parameters are refused', 'authenticated', F, `select public.add_parameter('free_lessons', null, null, null, '1', now(), 'Not a real parameter')`, /unknown/);
+    await step('Finance schedules a new cancellation window', () => act('authenticated', F, `select public.add_parameter('cancellation_window_hours', null, null, null, '12', now() + interval '1 day', 'Pilot feedback: shorter window')`));
+    ok('today’s rule is unchanged until it takes effect', Number((await act('postgres', null, `select private.num_param('cancellation_window_hours', 0) v`))[0].v) === 24, null);
+    await err('the metrics are for staff', 'authenticated', G, `select public.pilot_metrics(null)`, /staff only/);
+    const [{ pilot_metrics: pm }] = await step('staff read the pilot metrics', () => act('authenticated', F, `select public.pilot_metrics(null)`));
+    ok('all seven decision metrics, each with its threshold', pm.metrics.length === 7 && pm.metrics.every((x) => typeof x.threshold === 'number'), pm.metrics.map((x) => x.id));
+    const [tot] = await act('postgres', null, `select coalesce(sum(case when side = 'debit' then amount_kes else -amount_kes end), 0)::int d from public.ledger_entries`);
+    ok('the whole ledger balances', tot.d === 0, tot.d);
+  } catch (e) {
+    if (!/^sprint 7:/.test(e?.message ?? '')) fail('sprint 7: flow stopped', e.message);
   }
 }

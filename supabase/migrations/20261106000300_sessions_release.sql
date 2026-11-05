@@ -74,6 +74,18 @@ $$;
 -- ---------------------------------------------------------------------------
 -- Ledger postings
 -- ---------------------------------------------------------------------------
+-- What is still on hold from one payment (a package releases lesson by lesson).
+create or replace function private.held_balance(p_payment uuid)
+returns integer
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce(sum(case when e.side = 'credit' then e.amount_kes else -e.amount_kes end), 0)::integer
+    from public.ledger_entries e where e.payment_id = p_payment and e.account = 'client_funds_held'
+$$;
+
 -- Release a booking's hold to the teacher (FR-LEDGER-2). p_amount: release only this much of the hold
 -- (a partial refund credits the rest separately). p_final: the booking's final state.
 create or replace function private.release_booking(p_booking uuid, p_by text, p_amount integer default null,
@@ -104,13 +116,27 @@ declare
 begin
   select * into b from public.bookings where id = p_booking for update;
   select id into v_sess from public.sessions where booking_id = p_booking;
-  select * into p from public.payments where booking_id = b.id and status in ('succeeded', 'partially_refunded') order by succeeded_at desc limit 1 for update;
+  if b.package_id is not null then
+    select * into p from public.payments where package_id = b.package_id and status in ('succeeded', 'partially_refunded') order by succeeded_at desc limit 1 for update;
+  else
+    select * into p from public.payments where booking_id = b.id and status in ('succeeded', 'partially_refunded') order by succeeded_at desc limit 1 for update;
+  end if;
   if not found or p.hold_status <> 'held' then
     raise exception 'booking % has no held payment to release', p_booking using errcode = 'check_violation';
   end if;
   select user_id into v_owner from public.teachers where id = b.teacher_id;
   v_rate := private.commission_rate(b.id);
   v_held := p.amount_kes;
+  if b.package_id is not null then
+    -- One lesson's share of the package (FR-BOOK-7); the last lesson takes what rounding left.
+    v_held := private.held_balance(p.id);
+    if (select count(distinct e.booking_id) from public.ledger_entries e
+          join public.ledger_transactions t on t.id = e.txn_id
+         where e.payment_id = p.id and e.account = 'teacher_payable' and t.kind = 'session_release')
+       < (select pk.sessions_total - 1 from public.packages pk where pk.id = b.package_id) then
+      v_held := least(b.price_kes, v_held);
+    end if;
+  end if;
   v_kind := case when b.kind = 'trial' then 'trial_release' else 'session_release' end;
 
   insert into public.ledger_transactions (kind, idempotency_key, memo, posted_by)
@@ -166,9 +192,14 @@ begin
            (v_txn, 'vat_payable', 'credit', round(v_c * v_vrate)::integer, b.id, v_vrate);
   end if;
 
-  update public.payments set hold_status = 'released' where id = p.id;
+  if b.package_id is null or private.held_balance(p.id) = 0 then
+    update public.payments set hold_status = 'released' where id = p.id;
+  end if;
   update public.bookings set status = p_final, cancelled_by_role = case when p_final = 'cancelled' then coalesce(cancelled_by_role, 'payer') end
    where id = b.id and status <> p_final;
+  if b.package_id is not null and private.held_balance(p.id) = 0 then
+    update public.packages set status = 'completed' where id = b.package_id and status = 'active';
+  end if;
   update public.sessions
      set status = case when p_final = 'cancelled' then 'cancelled'::public.session_status else 'confirmed'::public.session_status end,
          confirmed_at = case when p_final = 'confirmed' then now() else confirmed_at end,
@@ -193,12 +224,26 @@ declare
   v_txn uuid;
 begin
   select * into b from public.bookings where id = p_booking for update;
-  select * into p from public.payments where booking_id = b.id and status = 'succeeded' and hold_status = 'held' for update;
+  if b.package_id is not null and p_amount is null then
+    -- In time: the lesson goes back into the package; no money moves.
+    update public.packages set sessions_used = greatest(sessions_used - 1, 0) where id = b.package_id;
+    update public.bookings
+       set status = p_final, cancelled_by_role = coalesce(cancelled_by_role, case when p_by in ('payer', 'teacher', 'staff') then p_by else 'system' end),
+           cancellation_rule = left(p_rule || ' The lesson is back in the package.', 300)
+     where id = b.id and status <> p_final;
+    update public.sessions set status = 'cancelled' where booking_id = b.id and status not in ('confirmed', 'cancelled');
+    return 0;
+  end if;
+  if b.package_id is not null then
+    select * into p from public.payments where package_id = b.package_id and status = 'succeeded' and hold_status = 'held' for update;
+  else
+    select * into p from public.payments where booking_id = b.id and status = 'succeeded' and hold_status = 'held' for update;
+  end if;
   if not found then
     raise exception 'booking % has no held payment to credit', p_booking using errcode = 'check_violation';
   end if;
   v_amt := coalesce(p_amount, p.amount_kes);
-  if v_amt <= 0 or v_amt > p.amount_kes then
+  if v_amt <= 0 or v_amt > (case when b.package_id is not null then least(b.price_kes, private.held_balance(p.id)) else p.amount_kes end) then
     raise exception 'credit amount % is outside the hold %', v_amt, p.amount_kes using errcode = 'check_violation';
   end if;
   insert into public.ledger_transactions (kind, idempotency_key, memo, posted_by)
@@ -531,7 +576,12 @@ begin
     raise exception 'this dispute is not open' using errcode = 'check_violation';
   end if;
   select * into b from public.bookings where id = d.booking_id for update;
-  select * into p from public.payments where booking_id = b.id and status = 'succeeded' and hold_status = 'held';
+  if b.package_id is not null then
+    select * into p from public.payments where package_id = b.package_id and status = 'succeeded' and hold_status = 'held';
+    p.amount_kes := least(b.price_kes, private.held_balance(p.id));  -- this lesson's share
+  else
+    select * into p from public.payments where booking_id = b.id and status = 'succeeded' and hold_status = 'held';
+  end if;
 
   if d.status in ('open', 'reopened', 'awaiting_party') then
     update public.disputes set status = 'in_review' where id = d.id;
@@ -551,6 +601,13 @@ begin
     end if;
     v_cred := private.credit_booking(b.id, 'staff', 'Dispute: partial credit', p_credit_kes);
     perform private.release_booking(b.id, 'staff', p.amount_kes - p_credit_kes);
+  elsif p_outcome = 'full_refund' and b.package_id is not null then
+    -- The lesson's share goes to credit and then back to M-Pesa; the lesson is not returned to the package.
+    v_cred := private.credit_booking(b.id, 'staff', 'Dispute: full_refund', p.amount_kes);
+    update public.bookings set status = 'cancelled', cancelled_by_role = coalesce(cancelled_by_role, 'staff') where id = b.id;
+    update public.sessions set status = 'cancelled' where booking_id = b.id and status not in ('confirmed', 'cancelled');
+    insert into public.refunds (payment_id, booking_id, dispute_id, amount_kes, method, reason, requested_by)
+    values (p.id, b.id, d.id, v_cred, 'provider_refund', 'Dispute outcome: full refund of one package lesson', auth.uid());
   elsif p_outcome in ('credit', 'full_refund', 'teacher_penalty', 'replacement') then
     if d.type = 'teacher_no_show' and b.status = 'scheduled' then
       -- FR-BOOK-9: the reliability count reads these rows.
@@ -894,7 +951,7 @@ $$;
 -- ---------------------------------------------------------------------------
 revoke all on function private.num_param(text, numeric, text, text), private.commission_rate(uuid),
   private.release_booking(uuid, text, integer, public.booking_status), private.credit_booking(uuid, text, text, integer, public.booking_status),
-  private.my_session(uuid), private.my_paid_booking(uuid), private.spendable_credit(uuid) from public, anon, authenticated;
+  private.my_session(uuid), private.my_paid_booking(uuid), private.spendable_credit(uuid), private.held_balance(uuid) from public, anon, authenticated;
 revoke all on function public.teacher_check_in(uuid), public.teacher_check_out(uuid), public.file_lesson_note(uuid, text, text, text),
   public.report_learner_absent(uuid), public.confirm_lesson(uuid), public.cancel_booking(uuid, text),
   public.teacher_cancel_booking(uuid, text), public.open_dispute(uuid, public.dispute_type, text), public.request_replacement(uuid, text),

@@ -71,6 +71,40 @@ export async function startCheckout(opts: { bookingId: string; method: "mpesa_st
   return { ok: true, redirectUrl: started.redirectUrl };
 }
 
+/** Package checkout (FR-BOOK-6): one collection for the whole package, held and released per lesson. */
+export async function startPackageCheckout(opts: { packageId: string; phone: string }): Promise<StartOutcome> {
+  const provider = paymentProvider();
+  if (!provider || !hasAdmin) return { ok: false, error: "Payments are not switched on in this environment yet." };
+  const db = await serverClient();
+  const { data: auth } = await db.auth.getUser();
+  if (!auth.user) return { ok: false, error: "Sign in again to pay." };
+  const { data: pkg } = await db.from("packages").select("id, status").eq("id", opts.packageId).maybeSingle();
+  if (!pkg) return { ok: false, error: "Package not found." };
+  if (pkg.status !== "pending_payment") return { ok: false, error: "This package is already paid or closed." };
+  const { data: payment, error } = await db.from("payments").insert({ package_id: pkg.id, method: "mpesa_stk" }).select("id, platform_ref, amount_kes").single();
+  if (error || !payment) return { ok: false, error: error?.message ?? "Could not start the payment." };
+  const started = await provider.startMpesa({ reference: payment.platform_ref, amountKes: payment.amount_kes, phone: opts.phone, email: payerEmail(auth.user.id) });
+  const admin = adminClient();
+  if (!started.ok) {
+    await admin.rpc("record_payment_failure", { p_payment: payment.id, p_reason: started.reason });
+    return { ok: false, error: `${started.reason} Nothing was charged.` };
+  }
+  await admin.rpc("mark_payment_pending", { p_payment: payment.id, p_provider_ref: started.providerRef });
+  return { ok: true };
+}
+
+export async function latestPackagePayment(packageId: string): Promise<PaymentRow | null> {
+  const db = await serverClient();
+  const { data } = await db
+    .from("payments")
+    .select("id, booking_id, platform_ref, provider, provider_ref, method, amount_kes, fee_kes, status, failure_reason, created_at, succeeded_at")
+    .eq("package_id", packageId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as PaymentRow | null) ?? null;
+}
+
 /** Latest payment for a booking, read as the payer. */
 export async function latestPayment(bookingId: string): Promise<PaymentRow | null> {
   const db = await serverClient();

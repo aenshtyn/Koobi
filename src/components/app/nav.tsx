@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Suspense } from "react";
 import {
+  Bell,
   BadgeCheck, Banknote, BookOpen, CalendarDays, ClipboardCheck, ClipboardList, Compass, FileText, Gavel, House, Inbox,
   Layers, ListChecks, MessagesSquare, Receipt, RefreshCw, Scale, Settings, ShieldCheck, SlidersHorizontal, Tags, UserRound,
   Users, Wallet, BarChart3, ScrollText, Clock,
@@ -13,7 +14,7 @@ const ICONS = {
   users: Users, layers: Layers, inbox: Inbox, wallet: Wallet, badge: BadgeCheck, settings: Settings, book: BookOpen,
   clock: Clock, check: ClipboardCheck, list: ClipboardList, listchecks: ListChecks, gavel: Gavel, banknote: Banknote,
   refresh: RefreshCw, scale: Scale, file: FileText, tags: Tags, sliders: SlidersHorizontal, shield: ShieldCheck,
-  chart: BarChart3, scroll: ScrollText,
+  chart: BarChart3, scroll: ScrollText, bell: Bell,
 } as const;
 export type IconName = keyof typeof ICONS;
 export type NavItem = { href: string; label: string; icon: IconName; section?: string; tab?: boolean };

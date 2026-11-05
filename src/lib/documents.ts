@@ -42,3 +42,33 @@ export async function openDocument(documentId: string): Promise<{ ok: true; url:
   if (signed.error || !signed.data) return { ok: false, error: "The file could not be opened." };
   return { ok: true, url: signed.data.signedUrl };
 }
+
+/** Parent ID check (FR-ACC-6): same bucket and rules, its own table. */
+export async function uploadGuardianDocument(opts: { file: File; checkId: string; kind: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!hasAdmin) return { ok: false, error: "Uploads are not switched on in this environment yet." };
+  const { file } = opts;
+  if (!file || file.size === 0) return { ok: false, error: "Choose a photo." };
+  if (file.size > MAX_UPLOAD_BYTES) return { ok: false, error: "The file is over 4 MB. Take a smaller photo." };
+  if (!UPLOAD_TYPES.includes(file.type)) return { ok: false, error: "Use a JPG, PNG or PDF." };
+  const key = `guardian/${opts.checkId}/${randomUUID()}.${EXT[file.type]}`;
+  const admin = adminClient();
+  const up = await admin.storage.from(BUCKET).upload(key, file, { contentType: file.type, upsert: false });
+  if (up.error) return { ok: false, error: `Upload failed: ${up.error.message}` };
+  const db = await serverClient();
+  const { error } = await db.from("guardian_documents").insert({ check_id: opts.checkId, storage_key: key, kind: opts.kind });
+  if (error) {
+    await admin.storage.from(BUCKET).remove([key]);
+    return { ok: false, error: "This check is no longer taking uploads." };
+  }
+  return { ok: true };
+}
+
+export async function openGuardianDocument(documentId: string): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  if (!hasAdmin) return { ok: false, error: "Documents are not switched on in this environment yet." };
+  const db = await serverClient();
+  const { data: key, error } = await db.rpc("open_guardian_document", { p_document: documentId });
+  if (error || !key) return { ok: false, error: "You cannot open this document." };
+  const signed = await adminClient().storage.from(BUCKET).createSignedUrl(String(key), 60);
+  if (signed.error || !signed.data) return { ok: false, error: "The file could not be opened." };
+  return { ok: true, url: signed.data.signedUrl };
+}

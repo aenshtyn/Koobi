@@ -377,6 +377,11 @@ function BookingCard({ data }: { data: OfferPageData }) {
           Free cancellation or reschedule up to <span className="mono">24</span> hours before.
         </p>
       </form>
+      {offer.format === "one_to_one" && !details?.package_prices?.length ? (
+        <a className="btn3 self-center" href={`/packages/new?offer=${offer.slug}`}>
+          Or book 8, 12 or 16 lessons as a package
+        </a>
+      ) : null}
       <EscrowPanel who={offer.teacher_name} />
     </aside>
   );

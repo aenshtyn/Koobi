@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { LogOut } from "lucide-react";
+import { Bell, LogOut } from "lucide-react";
 import { Logo } from "@/components/ui/trust";
 import { getSessionUser, requireUser, type Role } from "@/lib/auth";
 import { signOut } from "@/app/(auth)/actions";
 import { SideNav, TabBar, type NavItem } from "./nav";
+import { getUnreadCount } from "@/lib/data/account";
 
 type Props = {
   areaLabel: string;
@@ -23,7 +24,7 @@ export function AppShell({ areaLabel, root, nav, children }: Props) {
           <span className="hidden border-l-[1.5px] border-line-2 pl-4 text-[15px] font-semibold text-ink-2 sm:inline">{areaLabel}</span>
           <span className="flex-1" />
           <Suspense fallback={null}>
-            <UserChip />
+            <UserChip root={root} />
           </Suspense>
         </div>
       </header>
@@ -70,11 +71,33 @@ async function Guard({ next, anyOf, children }: { next: string; anyOf?: Role[]; 
   );
 }
 
-async function UserChip() {
+/** Name, notifications, the switch between learning and teaching (X2), and sign-out. */
+async function UserChip({ root }: { root: string }) {
   const user = await getSessionUser();
   if (!user) return null;
+  const unread = user.dev ? 0 : await getUnreadCount();
+  const teaching = root === "/teach";
+  const staff = root === "/staff";
+  const isTeacher = user.roles.includes("teacher");
   return (
     <div className="flex items-center gap-3">
+      {!staff ? (
+        teaching ? (
+          <Link className="btn3 hidden sm:inline-flex" href="/home">
+            Switch to learning
+          </Link>
+        ) : (
+          <Link className="btn3 hidden sm:inline-flex" href={isTeacher ? "/teach" : "/teach/apply"}>
+            {isTeacher ? "Switch to teaching" : "Teach on Koobi"}
+          </Link>
+        )
+      ) : null}
+      {!staff ? (
+        <Link className="iconbtn ghost relative" href={teaching ? "/teach/notifications" : "/notifications"} aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}>
+          <Bell size={20} aria-hidden="true" />
+          {unread ? <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-orange px-1 text-center text-[11px] font-semibold leading-4 text-white">{unread > 9 ? "9+" : unread}</span> : null}
+        </Link>
+      ) : null}
       <span className="hidden text-[15px] font-semibold sm:inline">{user.dev ? "Preview user" : user.name ?? "Your account"}</span>
       {user.dev ? null : (
         <form action={signOut}>

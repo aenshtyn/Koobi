@@ -142,6 +142,16 @@ begin
   if not found or b.status <> 'paid' then
     return;
   end if;
+  if b.package_id is not null then
+    -- A package lesson was paid with the package: it simply goes back into the package (FR-BOOK-7).
+    update public.bookings
+       set status = p_to, cancelled_at = case when p_to = 'cancelled' then now() else cancelled_at end,
+           cancelled_by_role = case when p_to = 'cancelled' then p_by else cancelled_by_role end,
+           cancellation_rule = left(p_rule || ' The lesson is back in the package.', 300)
+     where id = b.id;
+    update public.packages set sessions_used = greatest(sessions_used - 1, 0) where id = b.package_id;
+    return;
+  end if;
   select * into p from public.payments where booking_id = b.id and status = 'succeeded' and hold_status = 'held' for update;
   update public.bookings
      set status = p_to, cancelled_at = case when p_to = 'cancelled' then now() else cancelled_at end,

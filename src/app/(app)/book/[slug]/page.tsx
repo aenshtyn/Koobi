@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Guarded } from "@/components/app/shell";
 import { serverClient } from "@/lib/supabase/server";
 import { getPolicyText } from "@/lib/data/bookings";
@@ -21,6 +21,7 @@ export default function BookPage(props: PageProps<"/book/[slug]">) {
 
 async function Book({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const [{ slug }, sp] = await Promise.all([params, searchParams]);
+  if (typeof sp.kind === "string" && sp.kind.startsWith("package-")) redirect(`/packages/new?offer=${encodeURIComponent(slug)}`);
   const db = await serverClient();
   const [{ data: offer }, { data: details }, { data: auth }] = await Promise.all([
     db.from("explore_offers").select("*").eq("slug", slug).maybeSingle(),
