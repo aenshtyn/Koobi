@@ -41,15 +41,16 @@ export function RequestForm({ initial = {}, back }: { initial?: Record<string, s
         />
       </div>
       <fieldset className="flex flex-col gap-2">
-        <legend className="label mb-2">Online or in person?</legend>
+        <legend className="label mb-2">Where should lessons happen?</legend>
         <div className="flex flex-wrap gap-2">
           {[
-            ["either", "Either"],
             ["online", "Online"],
-            ["in_person", "In person"],
+            ["in_home", "At my home"],
+            ["teacher_premises", "At the teacher\u2019s place"],
+            ["hybrid", "A mix"],
           ].map(([v, l]) => (
             <label key={v} className="option py-2.5!">
-              <input type="radio" name="mode" value={v} defaultChecked={(f.mode ?? "either") === v} />
+              <input type="radio" name="mode" value={v} defaultChecked={(f.mode ?? "online") === v} />
               {l}
             </label>
           ))}

@@ -10,13 +10,14 @@ import { DRAFT_COOKIE } from "./constants";
 export type RequestState = { error?: string; fields?: Record<string, string> };
 
 const BUDGETS = ["", "1000", "2000", "5000"];
-const MODES = ["online", "in_person", "either"];
+/** Codes from the Supabase `modes` table. */
+const MODES = ["online", "in_home", "teacher_premises", "hybrid"];
 
 export async function submitRequest(_: RequestState, form: FormData): Promise<RequestState> {
   const fields = {
     category: String(form.get("category") ?? ""),
     need: String(form.get("need") ?? "").trim(),
-    mode: String(form.get("mode") ?? "either"),
+    mode: String(form.get("mode") ?? "online"),
     when: String(form.get("when") ?? "").trim().slice(0, 120),
     budget: String(form.get("budget") ?? ""),
     county: String(form.get("county") ?? "").trim().slice(0, 60),
@@ -27,7 +28,7 @@ export async function submitRequest(_: RequestState, form: FormData): Promise<Re
   if (fields.need.length < 10) return { error: "Tell us a little more about what you need.", fields };
   if (fields.need.length > 500) return { error: "Keep it under 500 characters; you can add detail later.", fields };
   if (!MODES.includes(fields.mode) || !BUDGETS.includes(fields.budget)) return { error: "Check the options and try again.", fields };
-  if (fields.mode === "in_person" && !fields.county) return { error: "Tell us the county for in-person lessons.", fields };
+  if (fields.mode !== "online" && !fields.county) return { error: "Tell us the county for in-person lessons.", fields };
   if (!hasSupabase) {
     return { error: "Requests are not connected in this environment. Add the Supabase keys to send them.", fields };
   }

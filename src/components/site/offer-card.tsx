@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { BookOpen, Briefcase, Calendar, Clock, Laptop, MapPin, Store, Users } from "lucide-react";
 import type { ExploreOffer } from "@/domain/types";
-import { FORMATS, categoryByCode } from "@/domain/taxonomy";
+import { FORMATS, categoryByCode, isInPerson, isOnline } from "@/domain/taxonomy";
 import { formatDuration, formatKES, formatWeekday, initials } from "@/domain/format";
 import { Badges } from "@/components/ui/trust";
 import { StarIcon } from "@/components/ui/doodles";
@@ -36,9 +36,10 @@ export function Rating({ rating, count }: { rating: number | null; count: number
 }
 
 function whereLine(o: ExploreOffer) {
-  if (o.modes.includes("online") && o.modes.length === 1) return "Online";
+  const online = isOnline(o.modes);
+  if (online && !isInPerson(o.modes)) return "Online";
   const place = [o.estate, o.county].filter(Boolean).join(", ");
-  if (o.modes.includes("online")) return place ? `Online or in ${place}` : "Online or in person";
+  if (online) return place ? `Online or in ${place}` : "Online or in person";
   return place || "In person";
 }
 
@@ -94,7 +95,7 @@ export function OfferCard({ offer, index = 0 }: { offer: ExploreOffer; index?: n
             {offer.format === "one_to_one" ? `${formatDuration(offer.duration_minutes)}` : whenLine(offer)}
           </span>
           <span>
-            {offer.modes.includes("in_person") ? <MapPin size={15} aria-hidden="true" /> : <Laptop size={15} aria-hidden="true" />}
+            {isInPerson(offer.modes) ? <MapPin size={15} aria-hidden="true" /> : <Laptop size={15} aria-hidden="true" />}
             {whereLine(offer)}
           </span>
           {offer.seats_left !== null && offer.format !== "one_to_one" ? (

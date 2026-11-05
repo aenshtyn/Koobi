@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { CalendarDays, ChevronRight, Clock, Globe, Languages, Laptop, MapPin, NotebookPen, Timer, Users } from "lucide-react";
-import { FORMATS, categoryByCode } from "@/domain/taxonomy";
+import { FORMATS, categoryByCode, isInPerson, isOnline } from "@/domain/taxonomy";
 import { formatDate, formatDuration, formatKES, formatTime, formatWeekday, initials } from "@/domain/format";
 import { getOfferPage } from "@/lib/data/catalogue";
 import { CATEGORY_ICONS, Rating, avatarTone } from "@/components/site/offer-card";
@@ -51,7 +51,7 @@ async function Offer({ params }: { params: Promise<{ slug: string }> }) {
   const cat = categoryByCode(offer.category);
   const CatIcon = cat ? CATEGORY_ICONS[cat.icon] : Laptop;
   const firstCheck = offer.badges[0];
-  const online = offer.modes.includes("online");
+  const online = isOnline(offer.modes);
   const place = [offer.estate, offer.county].filter(Boolean).join(", ");
 
   return (
@@ -117,7 +117,7 @@ async function Offer({ params }: { params: Promise<{ slug: string }> }) {
               <span className="inline-flex items-center gap-1.5">
                 {online ? <Laptop size={16} aria-hidden="true" /> : <MapPin size={16} aria-hidden="true" />}
                 {online ? `Online${details?.meeting_tool ? ` · ${details.meeting_tool}` : ""}` : place || "In person"}
-                {online && offer.modes.includes("in_person") && place ? ` or in ${place}` : ""}
+                {online && isInPerson(offer.modes) && place ? ` or in ${place}` : ""}
               </span>
             </div>
           </section>
@@ -361,7 +361,7 @@ function BookingCard({ data }: { data: OfferPageData }) {
                 </span>
               </span>
             ) : null}
-            {offer.modes.includes("online") ? (
+            {isOnline(offer.modes) ? (
               <span className="inline-flex items-center gap-2">
                 <Globe size={18} aria-hidden="true" />
                 Online

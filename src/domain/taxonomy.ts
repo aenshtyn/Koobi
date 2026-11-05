@@ -103,6 +103,13 @@ export const FORMATS: Record<
 /** Formats shown as public filters (site visits arrive with the practical track). */
 export const PUBLIC_FORMATS: FormatCode[] = ["one_to_one", "small_group", "workshop", "cohort"];
 
+/** Delivery modes, as in the Supabase `modes` table. Hybrid counts as both online and in person. */
+export const MODE_CODES = ["online", "in_home", "teacher_premises", "hybrid", "site"] as const;
+export type ModeCode = (typeof MODE_CODES)[number];
+export const IN_PERSON_MODES: ModeCode[] = ["in_home", "teacher_premises", "hybrid", "site"];
+export const isInPerson = (modes: string[]) => modes.some((m) => (IN_PERSON_MODES as string[]).includes(m));
+export const isOnline = (modes: string[]) => modes.includes("online") || modes.includes("hybrid");
+
 export function categoryBySlug(slug: string): Category | undefined {
   return CATEGORIES.find((c) => c.slug === slug);
 }

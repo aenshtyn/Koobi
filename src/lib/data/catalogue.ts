@@ -2,6 +2,7 @@ import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
 import type { ExploreOffer, OfferDetails, OfferFilters, PublicReview, PublicTeacher } from "@/domain/types";
 import { hasSupabase, useDevSeed } from "@/lib/supabase/config";
+import { IN_PERSON_MODES, isInPerson, isOnline } from "@/domain/taxonomy";
 import { publicClient } from "@/lib/supabase/public";
 
 /**
@@ -27,7 +28,8 @@ export function applyFilters(rows: ExploreOffer[], f: OfferFilters): ExploreOffe
   let out = rows.filter((o) => {
     if (f.category && o.category !== f.category) return false;
     if (f.formats?.length && !f.formats.includes(o.format)) return false;
-    if (f.mode && !o.modes.includes(f.mode)) return false;
+    if (f.mode === "online" && !isOnline(o.modes)) return false;
+    if (f.mode === "in_person" && !isInPerson(o.modes)) return false;
     if (f.maxPrice && o.price_kes > f.maxPrice) return false;
     if (q && !`${o.title} ${o.summary} ${o.teacher_name}`.toLowerCase().includes(q)) return false;
     return true;
@@ -65,7 +67,8 @@ export async function listOffers(filters: OfferFilters = {}): Promise<ExploreOff
   let query = publicClient().from("explore_offers").select("*");
   if (filters.category) query = query.eq("category", filters.category);
   if (filters.formats?.length) query = query.in("format", filters.formats);
-  if (filters.mode) query = query.contains("modes", [filters.mode]);
+  if (filters.mode === "online") query = query.overlaps("modes", ["online", "hybrid"]);
+  if (filters.mode === "in_person") query = query.overlaps("modes", IN_PERSON_MODES);
   if (filters.maxPrice) query = query.lte("price_kes", filters.maxPrice);
   if (filters.q?.trim()) {
     const q = filters.q.trim().replace(/[%,()]/g, " ");
