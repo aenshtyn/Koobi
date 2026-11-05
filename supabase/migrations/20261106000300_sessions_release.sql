@@ -100,8 +100,10 @@ declare
   v_r      integer;
   v_txn    uuid;
   v_kind   text;
+  v_sess   uuid;
 begin
   select * into b from public.bookings where id = p_booking for update;
+  select id into v_sess from public.sessions where booking_id = p_booking;
   select * into p from public.payments where booking_id = b.id and status in ('succeeded', 'partially_refunded') order by succeeded_at desc limit 1 for update;
   if not found or p.hold_status <> 'held' then
     raise exception 'booking % has no held payment to release', p_booking using errcode = 'check_violation';
@@ -122,16 +124,16 @@ begin
     -- A late-cancelled trial releases only what was paid (commission on trials is zero).
     v_r := b.price_kes;
     v_w := round(v_r * v_wrate)::integer;
-    insert into public.ledger_entries (txn_id, account, side, amount_kes, payment_id, booking_id, counterparty_user_id, commission_rate, withholding_rate)
-    values (v_txn, 'client_funds_held', 'debit', v_held, p.id, b.id, p.payer_user_id, 0, v_wrate),
-           (v_txn, 'teacher_payable', 'credit', v_r - v_w, p.id, b.id, v_owner, 0, v_wrate);
+    insert into public.ledger_entries (txn_id, account, side, amount_kes, payment_id, booking_id, session_id, counterparty_user_id, commission_rate, withholding_rate)
+    values (v_txn, 'client_funds_held', 'debit', v_held, p.id, b.id, v_sess, p.payer_user_id, 0, v_wrate),
+           (v_txn, 'teacher_payable', 'credit', v_r - v_w, p.id, b.id, v_sess, v_owner, 0, v_wrate);
     if v_r - v_held > 0 then
-      insert into public.ledger_entries (txn_id, account, side, amount_kes, payment_id, booking_id, commission_rate)
-      values (v_txn, 'expense_trial_subsidy', 'debit', v_r - v_held, p.id, b.id, 0);
+      insert into public.ledger_entries (txn_id, account, side, amount_kes, payment_id, booking_id, session_id, commission_rate)
+      values (v_txn, 'expense_trial_subsidy', 'debit', v_r - v_held, p.id, b.id, v_sess, 0);
     end if;
     if v_w > 0 then
-      insert into public.ledger_entries (txn_id, account, side, amount_kes, payment_id, booking_id, counterparty_user_id, withholding_rate)
-      values (v_txn, 'withholding_payable', 'credit', v_w, p.id, b.id, v_owner, v_wrate);
+      insert into public.ledger_entries (txn_id, account, side, amount_kes, payment_id, booking_id, session_id, counterparty_user_id, withholding_rate)
+      values (v_txn, 'withholding_payable', 'credit', v_w, p.id, b.id, v_sess, v_owner, v_wrate);
     end if;
     v_c := 0;
   else
@@ -142,16 +144,16 @@ begin
     v_c := round(v_p * v_rate)::integer;
     v_g := v_p - v_c;
     v_w := round(v_g * v_wrate)::integer;
-    insert into public.ledger_entries (txn_id, account, side, amount_kes, payment_id, booking_id, counterparty_user_id, commission_rate, withholding_rate)
-    values (v_txn, 'client_funds_held', 'debit', v_p, p.id, b.id, p.payer_user_id, v_rate, v_wrate),
-           (v_txn, 'teacher_payable', 'credit', v_g - v_w, p.id, b.id, v_owner, v_rate, v_wrate);
+    insert into public.ledger_entries (txn_id, account, side, amount_kes, payment_id, booking_id, session_id, counterparty_user_id, commission_rate, withholding_rate)
+    values (v_txn, 'client_funds_held', 'debit', v_p, p.id, b.id, v_sess, p.payer_user_id, v_rate, v_wrate),
+           (v_txn, 'teacher_payable', 'credit', v_g - v_w, p.id, b.id, v_sess, v_owner, v_rate, v_wrate);
     if v_c > 0 then
-      insert into public.ledger_entries (txn_id, account, side, amount_kes, payment_id, booking_id, commission_rate)
-      values (v_txn, 'revenue_commission', 'credit', v_c, p.id, b.id, v_rate);
+      insert into public.ledger_entries (txn_id, account, side, amount_kes, payment_id, booking_id, session_id, commission_rate)
+      values (v_txn, 'revenue_commission', 'credit', v_c, p.id, b.id, v_sess, v_rate);
     end if;
     if v_w > 0 then
-      insert into public.ledger_entries (txn_id, account, side, amount_kes, payment_id, booking_id, counterparty_user_id, withholding_rate)
-      values (v_txn, 'withholding_payable', 'credit', v_w, p.id, b.id, v_owner, v_wrate);
+      insert into public.ledger_entries (txn_id, account, side, amount_kes, payment_id, booking_id, session_id, counterparty_user_id, withholding_rate)
+      values (v_txn, 'withholding_payable', 'credit', v_w, p.id, b.id, v_sess, v_owner, v_wrate);
     end if;
   end if;
 
@@ -749,7 +751,7 @@ begin
   update public.payments set status = 'succeeded', hold_status = 'held', provider_ref = v_ref, settled_kes = 0, verified_at = now() where id = v_pay;
 
   insert into public.ledger_transactions (kind, idempotency_key, memo, posted_by)
-  values ('payment_hold', 'hold:' || v_pay::text, 'Credit used for ' || v_ref || ', held until the lesson happens', 'system:credit')
+  values ('credit_used', 'hold:' || v_pay::text, 'Credit used for ' || v_ref || ', held until the lesson happens', 'system:credit')
   returning id into v_txn;
   insert into public.ledger_entries (txn_id, account, side, amount_kes, payment_id, booking_id, counterparty_user_id)
   values (v_txn, 'client_funds_held', 'credit', v_amount, v_pay, b.id, v_me);

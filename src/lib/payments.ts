@@ -6,6 +6,7 @@ import { paymentProvider, payerEmail } from "@/integrations/payments";
 import { SANDBOX_FEE_RATE } from "@/integrations/payments/sandbox";
 import { verifyPaystackSignature } from "@/integrations/payments/paystack";
 import { refundIdForProviderRef, settleRefund } from "@/lib/refunds";
+import { settleTransferWebhook } from "@/lib/payouts";
 
 /**
  * Checkout and settlement (PRD §3.6, FR-PAY, §9.7). The payer creates the payment under their own
@@ -162,6 +163,17 @@ export async function ingestPaystackWebhook(raw: string, signature: string | nul
     .maybeSingle();
   if (error) return error.code === "23505" ? 200 : 500; // duplicate delivery: already handled
   if (!valid) return 401;
+
+  if (body.event?.startsWith("transfer.") && body.data?.reference) {
+    try {
+      const outcome = await settleTransferWebhook(body.data.reference);
+      await admin.from("provider_events").update({ status: outcome, processed_at: new Date().toISOString() }).eq("id", stored!.id);
+      return 200;
+    } catch (e) {
+      await admin.from("provider_events").update({ status: "failed", last_error: String(e), attempts: 1 }).eq("id", stored!.id);
+      return 500;
+    }
+  }
 
   if (body.event?.startsWith("refund.") && body.data?.id) {
     const refundId = await refundIdForProviderRef(String(body.data.id));

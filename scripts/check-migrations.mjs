@@ -121,6 +121,13 @@ async function main() {
   } finally {
     await db.exec('rollback');
   }
+
+  await db.exec('begin');
+  try {
+    await checkAppPayoutFlow();
+  } finally {
+    await db.exec('rollback');
+  }
 }
 
 // ---------------------------------------------------------------------------- helpers
@@ -1247,5 +1254,200 @@ async function checkAppSessionFlow() {
     ok('the whole ledger balances', tot.d === 0, tot.d);
   } catch (e) {
     if (!/^lessons:/.test(e?.message ?? '')) fail('lessons: flow stopped', e.message);
+  }
+}
+
+
+// ---------------------------------------------------------------------------- app flow: sprint 6 verification and payouts
+// Mirrors src/app/teach/verification, src/app/teach/settings and src/app/staff/(console)/payouts|verification|reconciliation.
+async function checkAppPayoutFlow() {
+  const L = 'b1111111-1111-1111-1111-111111111111';
+  const T = 'b2222222-2222-2222-2222-222222222222';
+  const R = 'b3333333-3333-3333-3333-333333333333';
+  const F1 = 'b4444444-4444-4444-4444-444444444444';
+  const F2 = 'b5555555-5555-5555-5555-555555555555';
+  const MEET = 'https://meet.google.com/abc-defg-hij';
+  const ENC = 'v1:test-ciphertext-0000000000';
+  const step = async (name, fn) => {
+    try {
+      const r = await fn();
+      pass(`payouts: ${name}`);
+      return r;
+    } catch (e) {
+      fail(`payouts: ${name}`, e.message);
+      throw e;
+    }
+  };
+  const ok = (name, cond, detail) => (cond ? pass(`payouts: ${name}`) : fail(`payouts: ${name}`, JSON.stringify(detail)));
+  const err = (name, role, sub, sql, pattern) => expectError(`payouts: ${name}`, role, sub, q(sql), pattern);
+  try {
+    await act('postgres', null, `insert into auth.users (id, email, phone, raw_user_meta_data) values
+      ($1, 'pl@koobi.test', '254711000021', '{"display_name": "Pendo Learner"}'), ($2, 'pt@koobi.test', '254722000022', '{"display_name": "Paka Teacher"}'),
+      ($3, 'pr@koobi.test', null, '{"display_name": "Rita Reviewer"}'), ($4, 'pf1@koobi.test', null, '{"display_name": "Fina One"}'),
+      ($5, 'pf2@koobi.test', null, '{"display_name": "Fina Two"}')`, [L, T, R, F1, F2]);
+    await act('postgres', null, `insert into public.user_roles (user_id, role) values ($1, 'learner'), ($2, 'teacher'), ($3, 'reviewer'), ($4, 'finance'), ($5, 'finance'), ($5, 'admin')`, [L, T, R, F1, F2]);
+    const [teacher] = await act('authenticated', T, `insert into public.teachers (user_id, slug, display_name) values ($1, 'paka-teacher', 'Paka Teacher') returning id`, [T]);
+    const [offer] = await act('postgres', null, `insert into public.offerings (teacher_id, title, summary, category, track, format, subject_text,
+        modes, meeting_tool, duration_minutes, price_hour_kes, trial_discount_pct, language_codes)
+      values ($1, 'Excel for work', 'x', 'digital_practical_skills', 'adults_professional', 'one_to_one', 'Excel',
+        '{online}', 'google_meet', 60, 1800, 50, '{en}') returning id`, [teacher.id]);
+    for (const [tbl, id] of [['teachers', teacher.id], ['offerings', offer.id]]) {
+      await act('postgres', null, `update public.${tbl} set listing_status = 'pending_review' where id = $1`, [id]);
+      await act('postgres', null, `update public.${tbl} set listing_status = 'approved' where id = $1`, [id]);
+    }
+    const [learner] = await act('authenticated', L, `insert into public.learners (user_id, alias) values ($1, 'Pendo') returning id`, [L]);
+    let n = 0;
+    const lesson = async (kind = 'single') => {
+      n++;
+      const [b] = await act('authenticated', L, `insert into public.bookings (offering_id, learner_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)
+        values ($1, $2, $3, 'online', now() + interval '${3 + n} days', 'cancellation-2026-11-v1', now()) returning id`, [offer.id, learner.id, kind]);
+      await act('authenticated', L, `update public.bookings set status = 'awaiting_payment' where id = $1`, [b.id]);
+      const [p] = await act('authenticated', L, `insert into public.payments (booking_id, method) values ($1, 'mpesa_stk') returning id`, [b.id]);
+      await act('service_role', null, `select public.record_payment_success($1, $2, 0, null)`, [p.id, `ps_s6_${n}`]);
+      await act('authenticated', T, `select public.teacher_respond_booking($1, true, $2, null)`, [b.id, MEET]);
+      const [s] = await act('postgres', null, `select id from public.sessions where booking_id = $1`, [b.id]);
+      await act('postgres', null, `update public.bookings set starts_at = now() - interval '5 minutes' where id = $1`, [b.id]);
+      await act('postgres', null, `update public.sessions set starts_at = now() - interval '5 minutes', ends_at = now() + interval '55 minutes' where id = $1`, [s.id]);
+      await act('authenticated', T, `select public.teacher_check_in($1)`, [s.id]);
+      await act('authenticated', T, `select public.teacher_check_out($1)`, [s.id]);
+      await act('authenticated', T, `select public.file_lesson_note($1, 'Pivot tables and VLOOKUP', null, null)`, [s.id]);
+      await act('authenticated', L, `select public.confirm_lesson($1)`, [b.id]);
+      return b.id;
+    };
+    await step('two confirmed lessons: a single and a trial', async () => { await lesson('single'); await lesson('trial'); });
+    const week = (await act('postgres', null, `select date_trunc('week', now() at time zone 'Africa/Nairobi')::date::text w`))[0].w;
+    const payoutOf = async (batch) => (await act('postgres', null, `select id, status, exclusion_reason, gross_kes, platform_fee_kes, withholding_kes, net_kes, transfer_fee_kes,
+        (select count(*)::int from public.payout_lines l where l.payout_id = p.id) lines from public.payouts p where batch_id = $1 and teacher_id = $2`, [batch, teacher.id]))[0];
+
+    // ---- payout readiness
+    await err('a teacher cannot build a batch', 'authenticated', T, `select public.compute_payout_batch()`, /finance only/);
+    const [{ compute_payout_batch: b0 }] = await step('Finance builds the week’s batch', () => act('authenticated', F1, `select public.compute_payout_batch()`));
+    const p0 = await payoutOf(b0);
+    ok('no KRA PIN: listed as excluded, nothing attached, balance kept', p0?.status === 'excluded' && p0.exclusion_reason === 'KRA PIN missing' && p0.lines === 0 && p0.net_kes === 3078, p0);
+    await err('an empty batch cannot be approved', 'authenticated', F1, `select public.approve_payout_batch('${b0}')`, /nobody to pay/);
+    await step('the teacher saves a KRA PIN (encrypted by the app)', () => act('authenticated', T, `update public.teachers set kra_pin_enc = $2 where id = $1`, [teacher.id, ENC]));
+    await err('the payout number cannot be written directly', 'authenticated', T, `update public.teachers set payout_phone_enc = '${ENC}' where id = '${teacher.id}'`, /permission denied/);
+    const [{ set_payout_number: poc }] = await step('the teacher sets a payout number', () => act('authenticated', T, `select public.set_payout_number($1)`, [ENC]));
+    await err('only the server records a test payout', 'authenticated', T, `select public.record_test_payout('${poc}', 10, 0, 'tr_1', 'PAKA TEACHER')`, /permission denied/);
+    await step('the test payout lands', () => act('service_role', null, `select public.record_test_payout($1, 10, 0, 'tr_1', 'PAKA TEACHER')`, [poc]));
+    const [tp] = await act('postgres', null, `select status, cost_kes, result_summary ->> 'recipient_name' n from public.verification_checks where id = $1`, [poc]);
+    ok('the ownership check waits for a reviewer with the M-Pesa name', tp.status === 'in_review' && tp.cost_kes === 10 && tp.n === 'PAKA TEACHER', tp);
+    await err('a learner cannot review checks', 'authenticated', L, `select public.review_check('${poc}', true, 'ok', 2, null)`, /reviewers only/);
+    await err('a failed check needs a reason', 'authenticated', R, `select public.review_check('${poc}', false, '', 2, null)`, /say why/);
+    await step('the reviewer passes the payout number', () => act('authenticated', R, `select public.review_check($1, true, 'Name matches the ID', 3, null)`, [poc]));
+    const [t1] = await act('postgres', null, `select payout_ownership_status o, status from public.teachers where id = $1`, [teacher.id]);
+    ok('payout number proven; not bookable until the ID passes', t1.o === 'passed' && t1.status === 'applied', t1);
+
+    // ---- identity and the ladder
+    const [{ start_check: idc }] = await step('the teacher starts the identity check', () => act('authenticated', T, `select public.start_check('identity_iprs', null)`));
+    const [{ start_check: same }] = await act('authenticated', T, `select public.start_check('identity_iprs', null)`);
+    ok('starting it again returns the open check', same === idc, { idc, same });
+    await err('it cannot be sent without the ID photo', 'authenticated', T, `select public.submit_check('${idc}', '{"id_number": "12345678"}')`, /upload the document/);
+    await step('the teacher uploads the ID photo', () => act('authenticated', T, `insert into public.verification_documents (check_id, teacher_id, storage_key, kind)
+      values ($1, $2, $3, 'id_front')`, [idc, teacher.id, `teacher/${teacher.id}/${idc}/front.jpg`]));
+    await err('nobody can list documents directly', 'authenticated', T, `select * from public.verification_documents`, /permission denied/);
+    await err('a malformed ID number is refused', 'authenticated', T, `select public.submit_check('${idc}', '{"id_number": "12AB"}')`, /ID number/);
+    await step('the teacher sends it for review', () => act('authenticated', T, `select public.submit_check($1, '{"id_number": "12345678"}')`, [idc]));
+    const mine = await act('authenticated', T, `select kind from public.my_check_documents() where check_id = $1`, [idc]);
+    ok('the teacher sees one upload, without its key', mine.length === 1 && mine[0].kind === 'id_front' && !('storage_key' in mine[0]), mine);
+    await err('a teacher cannot open documents', 'authenticated', T, `select public.open_document((select id from public.verification_documents limit 1))`, /reviewers only|permission denied/);
+    const docs = await act('authenticated', R, `select id from public.check_documents($1)`, [idc]);
+    const [{ open_document: key }] = await step('the reviewer opens the document', () => act('authenticated', R, `select public.open_document($1)`, [docs[0].id]));
+    const [audit] = await act('postgres', null, `select count(*)::int c from public.audit_log where action = 'document.view' and entity_id = $1 and actor_user_id = $2`, [docs[0].id, R]);
+    ok('every document view is logged', key.endsWith('front.jpg') && audit.c === 1, { key, audit });
+    await step('the reviewer passes the ID', () => act('authenticated', R, `select public.review_check($1, true, 'Photo and number match', 4, null)`, [idc]));
+    const [t2] = await act('postgres', null, `select t.status, tt.tier, private.teacher_badges(t.id, null) b from public.teachers t
+      join public.teacher_tracks tt on tt.teacher_id = t.id and tt.track = 'adults_professional' where t.id = $1`, [teacher.id]);
+    ok('tier 1 on the track, bookable, and an "ID verified" badge with its date',
+      t2.status === 'bookable' && t2.tier === 1 && t2.b.length === 1 && t2.b[0].label === 'ID verified' && !!t2.b[0].passed_at, t2);
+    const [{ start_check: ev }] = await act('authenticated', T, `select public.start_check('experience_evidence', null)`);
+    await act('authenticated', T, `insert into public.verification_documents (check_id, teacher_id, storage_key, kind) values ($1, $2, $3, 'portfolio')`, [ev, teacher.id, `teacher/${teacher.id}/${ev}/p.pdf`]);
+    await act('authenticated', T, `select public.submit_check($1, '{"summary": "Six years in finance teams"}')`, [ev]);
+    await act('authenticated', R, `select public.review_check($1, true, 'Letters from two employers', 6, null)`, [ev]);
+    ok('a tier-2 check lifts the track to tier 2', (await act('postgres', null, `select tier from public.teacher_tracks where teacher_id = $1`, [teacher.id]))[0].tier === 2, null);
+    await err('a passed check cannot be started again', 'authenticated', T, `select public.start_check('experience_evidence', null)`, /already passed/);
+    const [{ start_check: gc }] = await act('authenticated', T, `select public.start_check('good_conduct', null)`);
+    await act('authenticated', T, `insert into public.verification_documents (check_id, teacher_id, storage_key, kind) values ($1, $2, $3, 'good_conduct')`, [gc, teacher.id, `teacher/${teacher.id}/${gc}/gc.pdf`]);
+    await act('authenticated', T, `select public.submit_check($1, '{}')`, [gc]);
+    await step('the reviewer fails a blurred certificate', () => act('authenticated', R, `select public.review_check($1, false, 'The certificate number is unreadable', 2, null)`, [gc]));
+    const [mv] = await act('authenticated', T, `select status, failure_reason from public.my_verification_checks where id = $1`, [gc]);
+    const [{ start_check: gc2 }] = await act('authenticated', T, `select public.start_check('good_conduct', null)`);
+    const [a2] = await act('postgres', null, `select attempt_no from public.verification_checks where id = $1`, [gc2]);
+    ok('the teacher sees why, and can try again as attempt 2', mv.status === 'failed' && mv.failure_reason.includes('unreadable') && a2.attempt_no === 2, { mv, a2 });
+
+    await err('a reviewer cannot suspend a teacher', 'authenticated', R, `update public.teachers set status = 'suspended' where id = '${teacher.id}'`, /not allowed/);
+    await step('an admin suspends the teacher', () => act('authenticated', F2, `update public.teachers set status = 'suspended', status_reason = 'Safety report under review' where id = $1`, [teacher.id]));
+    const [hidden] = await act('anon', null, `select count(*)::int c from public.explore_offers where teacher_slug = 'paka-teacher'`);
+    await err('reinstating needs a reason', 'authenticated', F2, `select public.reinstate_teacher('${teacher.id}', '')`, /reason/);
+    await step('the admin reinstates the teacher', () => act('authenticated', F2, `select public.reinstate_teacher($1, 'Report closed, no finding')`, [teacher.id]));
+    const [back] = await act('postgres', null, `select status from public.teachers where id = $1`, [teacher.id]);
+    ok('suspended offers are hidden; reinstated straight back to bookable from the checks', hidden.c === 0 && back.status === 'bookable', { hidden, back });
+
+    // ---- the batch, two approvers, the transfer
+    const [{ compute_payout_batch: b1 }] = await step('Finance rebuilds the batch', () => act('authenticated', F1, `select public.compute_payout_batch()`));
+    const p1 = await payoutOf(b1);
+    ok('same batch, now payable: 2 lines, gross 3,600, fee 360, withholding 162, net 3,078, transfer fee 40',
+      b1 === b0 && p1.status === 'pending_approval' && p1.lines === 2 && p1.gross_kes === 3600 && p1.platform_fee_kes === 360
+        && p1.withholding_kes === 162 && p1.net_kes === 3078 && p1.transfer_fee_kes === 40, p1);
+    const lines = await act('authenticated', T, `select gross_kes, commission_kes, withholding_kes, net_kes from public.payout_lines order by net_kes`);
+    ok('the teacher reads the statement lines: 1,800 − 360 − 72 = 1,368 and trial 1,800 − 0 − 90 = 1,710',
+      lines.length === 2 && lines[0].net_kes === 1368 && lines[0].commission_kes === 360 && lines[0].withholding_kes === 72
+        && lines[1].net_kes === 1710 && lines[1].gross_kes === 1800 && lines[1].withholding_kes === 90, lines);
+    const [e1] = await act('authenticated', T, `select owed_kes, in_payout_kes, paid_kes from public.my_earnings()`);
+    ok('earnings: 3,078 owed and in this week’s payout', e1.owed_kes === 3078 && e1.in_payout_kes === 3078 && e1.paid_kes === 0, e1);
+    await err('a teacher cannot approve a batch', 'authenticated', T, `select public.approve_payout_batch('${b1}')`, /finance only/);
+    const [{ approve_payout_batch: first }] = await step('the first Finance approval', () => act('authenticated', F1, `select public.approve_payout_batch($1)`, [b1]));
+    await err('the same person cannot approve twice', 'authenticated', F1, `select public.approve_payout_batch('${b1}')`, /second person/);
+    const [{ approve_payout_batch: second }] = await step('a second person approves', () => act('authenticated', F2, `select public.approve_payout_batch($1)`, [b1]));
+    const [{ compute_payout_batch: b1again }] = await act('authenticated', F1, `select public.compute_payout_batch()`);
+    ok('approved: payouts approved, and the batch is not rebuilt', first === 'first' && second === 'approved' && b1again === b1 && (await payoutOf(b1)).status === 'approved', { first, second });
+    await err('only the server records a transfer', 'authenticated', F1, `select public.record_payout_sent('${p1.id}', 'tf_1', 40)`, /permission denied/);
+    await step('the transfer is requested', () => act('service_role', null, `select public.mark_payout_sending($1, 'tf_1')`, [p1.id]));
+    const [{ record_payout_sent: s1 }] = await step('the provider confirms the transfer', () => act('service_role', null, `select public.record_payout_sent($1, 'tf_1', 40)`, [p1.id]));
+    const [{ record_payout_sent: s2 }] = await act('service_role', null, `select public.record_payout_sent($1, 'tf_1', 40)`, [p1.id]);
+    const owed = (await act('postgres', null, `select coalesce(sum(case when side = 'credit' then amount_kes else -amount_kes end), 0)::int v
+       from public.ledger_entries where account = 'teacher_payable' and counterparty_user_id = $1`, [T]))[0].v;
+    const [bt] = await act('postgres', null, `select status from public.payout_batches where id = $1`, [b1]);
+    ok('sent once: teacher owed nothing, batch completed', s1 === true && s2 === false && owed === 0 && bt.status === 'completed', { s1, s2, owed, bt });
+    const [e2] = await act('authenticated', T, `select owed_kes, in_payout_kes, paid_kes from public.my_earnings()`);
+    ok('earnings: 3,078 paid', e2.owed_kes === 0 && e2.in_payout_kes === 0 && e2.paid_kes === 3078, e2);
+
+    // ---- a failing transfer is parked after three attempts, then cancelled back to payable
+    await lesson('single');
+    const nextWeek = (await act('postgres', null, `select ($1::date + 7)::text w`, [week]))[0].w;
+    const [{ compute_payout_batch: b2 }] = await act('postgres', null, `select private.compute_payout_batch($1::date, now())`, [nextWeek]);
+    await act('authenticated', F1, `select public.approve_payout_batch($1)`, [b2]);
+    await act('authenticated', F2, `select public.approve_payout_batch($1)`, [b2]);
+    const p2 = await payoutOf(b2);
+    for (let i = 0; i < 3; i++) {
+      await act('service_role', null, `select public.mark_payout_sending($1, null)`, [p2.id]);
+      await act('service_role', null, `select public.record_payout_failure($1, 'Recipient number inactive')`, [p2.id]);
+    }
+    ok('three failures park the payout', (await payoutOf(b2)).status === 'parked', await payoutOf(b2));
+    await step('Finance cancels the parked payout', () => act('authenticated', F1, `select public.cancel_payout($1, 'Teacher is changing number')`, [p2.id]));
+    const p2c = await payoutOf(b2);
+    const [e3] = await act('authenticated', T, `select owed_kes from public.my_earnings()`);
+    ok('cancelled: lines freed, 1,368 still owed for next week', p2c.status === 'cancelled' && p2c.lines === 0 && e3.owed_kes === 1368, { p2c, e3 });
+
+    // ---- reconciliation blocks payouts until Koobi funds the trial subsidy
+    await err('a teacher cannot run reconciliation', 'authenticated', T, `select public.run_reconciliation()`, /finance only/);
+    const [{ run_reconciliation: rr1 }] = await step('Finance runs reconciliation', () => act('authenticated', F1, `select public.run_reconciliation()`));
+    const [run1] = await act('postgres', null, `select status, findings from public.reconciliation_runs where id = $1`, [rr1]);
+    const checks1 = run1.findings.map((f) => f.check);
+    ok('the only finding: liabilities exceed cash after paying a subsidised trial', run1.status === 'failed' && checks1.length === 1 && checks1[0] === 'client_money_covered', run1);
+    await err('payouts are blocked while it fails', 'authenticated', F1, `select public.compute_payout_batch()`, /reconciliation failed/);
+    const short = run1.findings[0].liabilities_kes - run1.findings[0].cash_kes;
+    const [adj] = await step('Finance requests a top-up of the provider balance', () => act('authenticated', F1, `insert into public.ledger_adjustment_requests (reason, proposed_entries)
+      values ('Fund trial subsidies and fees', $1::jsonb) returning id`, [JSON.stringify([{ account: 'cash_provider', side: 'debit', amount_kes: short }, { account: 'adjustments', side: 'credit', amount_kes: short }])]));
+    await err('the requester cannot approve it', 'authenticated', F1, `select public.approve_adjustment('${adj.id}')`, /second person/);
+    await err('nobody can mark it posted by hand', 'authenticated', F2, `update public.ledger_adjustment_requests set status = 'posted' where id = '${adj.id}'`, /permission denied/);
+    await step('a second person posts it', () => act('authenticated', F2, `select public.approve_adjustment($1)`, [adj.id]));
+    const [{ run_reconciliation: rr2 }] = await act('authenticated', F1, `select public.run_reconciliation()`);
+    const [run2] = await act('postgres', null, `select status, findings from public.reconciliation_runs where id = $1`, [rr2]);
+    ok('reconciliation passes after the top-up', run2.status === 'passed', run2);
+    const [tot] = await act('postgres', null, `select coalesce(sum(case when side = 'debit' then amount_kes else -amount_kes end), 0)::int d from public.ledger_entries`);
+    ok('the whole ledger balances', tot.d === 0, tot.d);
+  } catch (e) {
+    if (!/^payouts:/.test(e?.message ?? '')) fail('payouts: flow stopped', e.message);
   }
 }

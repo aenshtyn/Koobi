@@ -56,3 +56,92 @@ export async function getLedger(): Promise<{ balances: { account: string; balanc
     journals: (journals.data ?? []) as Journal[],
   };
 }
+
+// ---------------------------------------------------------------------------
+// Sprint 6: payout batches (S13) and reconciliation (S15)
+
+export type Batch = {
+  id: string;
+  week_start: string;
+  cutoff_at: string;
+  status: string;
+  teacher_count: number;
+  gross_kes: number;
+  withholding_kes: number;
+  net_kes: number;
+  fees_kes: number;
+  approved_by: string | null;
+  second_approver: string | null;
+  approved_at: string | null;
+};
+
+export type BatchPayout = {
+  id: string;
+  status: string;
+  gross_kes: number;
+  platform_fee_kes: number;
+  withholding_kes: number;
+  net_kes: number;
+  transfer_fee_kes: number;
+  exclusion_reason: string | null;
+  attempts: number;
+  last_error: string | null;
+  sent_at: string | null;
+  teacher: { display_name: string; slug: string } | null;
+};
+
+const BATCH_COLS = "id, week_start, cutoff_at, status, teacher_count, gross_kes, withholding_kes, net_kes, fees_kes, approved_by, second_approver, approved_at";
+
+export async function getBatches(): Promise<Batch[]> {
+  if (!hasSupabase) return [];
+  const db = await serverClient();
+  const { data, error } = await db.from("payout_batches").select(BATCH_COLS).order("week_start", { ascending: false }).limit(26);
+  if (error) throw new Error(`payout_batches: ${error.message}`);
+  return (data ?? []) as Batch[];
+}
+
+export async function getBatch(id: string): Promise<{ batch: Batch; payouts: BatchPayout[]; approvers: Record<string, string> } | null> {
+  if (!hasSupabase || !/^[0-9a-f-]{36}$/.test(id)) return null;
+  const db = await serverClient();
+  const { data: batch } = await db.from("payout_batches").select(BATCH_COLS).eq("id", id).maybeSingle();
+  if (!batch) return null;
+  const { data: payouts } = await db
+    .from("payouts")
+    .select("id, status, gross_kes, platform_fee_kes, withholding_kes, net_kes, transfer_fee_kes, exclusion_reason, attempts, last_error, sent_at, teacher:teachers(display_name, slug)")
+    .eq("batch_id", id)
+    .order("net_kes", { ascending: false });
+  const ids = [batch.approved_by, batch.second_approver].filter(Boolean) as string[];
+  const { data: people } = ids.length ? await db.from("profiles").select("id, display_name").in("id", ids) : { data: [] };
+  return {
+    batch: batch as Batch,
+    payouts: (payouts ?? []) as unknown as BatchPayout[],
+    approvers: Object.fromEntries(((people ?? []) as { id: string; display_name: string | null }[]).map((p) => [p.id, p.display_name ?? "Staff"])),
+  };
+}
+
+export type ReconRun = { id: string; run_on: string; status: string; findings: Record<string, unknown>[]; created_at: string };
+export type Adjustment = {
+  id: string;
+  status: string;
+  reason: string;
+  proposed_entries: { account: string; side: string; amount_kes: number }[];
+  requested_by: string;
+  approved_by: string | null;
+  created_at: string;
+  decided_at: string | null;
+};
+
+export async function getReconciliation(): Promise<{ runs: ReconRun[]; adjustments: Adjustment[] }> {
+  if (!hasSupabase) return { runs: [], adjustments: [] };
+  const db = await serverClient();
+  const [runs, adjustments] = await Promise.all([
+    db.from("reconciliation_runs").select("id, run_on, status, findings, created_at").order("created_at", { ascending: false }).limit(30),
+    db
+      .from("ledger_adjustment_requests")
+      .select("id, status, reason, proposed_entries, requested_by, approved_by, created_at, decided_at")
+      .order("created_at", { ascending: false })
+      .limit(30),
+  ]);
+  if (runs.error) throw new Error(`reconciliation_runs: ${runs.error.message}`);
+  return { runs: (runs.data ?? []) as ReconRun[], adjustments: (adjustments.data ?? []) as Adjustment[] };
+}

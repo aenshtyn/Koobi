@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { fromSubunits, mpesaPhone, refundStatus, toSubunits, verifyPaystackSignature } from "./paystack";
+import { fromSubunits, localPhone, mpesaPhone, refundStatus, toSubunits, transferStatus, verifyPaystackSignature } from "./paystack";
 
 describe("Paystack adapter", () => {
   const secret = "sk_test_example";
@@ -26,5 +26,14 @@ describe("Paystack adapter", () => {
     expect(refundStatus("failed").status).toBe("failed");
     expect(refundStatus("needs-attention")).toEqual({ status: "pending" });
     expect(refundStatus(undefined)).toEqual({ status: "pending" });
+  });
+  it("sends M-Pesa recipients in the local form", () => {
+    expect(localPhone("+254712345678")).toBe("0712345678");
+    expect(localPhone("254112345678")).toBe("0112345678");
+  });
+  it("treats only a successful transfer as paid", () => {
+    expect(transferStatus("success", 4000)).toEqual({ status: "success", feeKes: 40 });
+    expect(transferStatus("reversed").status).toBe("failed");
+    expect(transferStatus("otp")).toEqual({ status: "pending" });
   });
 });

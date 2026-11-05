@@ -24,4 +24,10 @@ export const sandbox: PaymentProvider = {
   async checkRefund() {
     return { status: "processed" };
   },
+  async transfer({ reference, name }) {
+    return { ok: true, providerRef: `sandbox_transfer_${reference}`, status: "success", recipientName: name.toUpperCase(), feeKes: null };
+  },
+  async checkTransfer() {
+    return { status: "success", feeKes: null };
+  },
 };

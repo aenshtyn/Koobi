@@ -70,6 +70,11 @@ async function EditOffer({ params, searchParams }: { params: Promise<{ id: strin
           </div>
         ) : null}
         {blocked ? <p className="help">Full-time TSC teachers cannot list offers, so this stays a draft.</p> : null}
+        {offer.track === "school" ? (
+          <Link className="btn3 self-start" href={`/teach/verification/subject-test/${offer.id}`}>
+            Subject test for this offer
+          </Link>
+        ) : null}
         {offer.listing_status === "approved" ? (
           teacher.listing_status === "approved" ? (
             <Link className="btn3 self-start" href={`/offers/${offer.slug}`}>
