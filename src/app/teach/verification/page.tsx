@@ -78,6 +78,9 @@ async function Ladder() {
           </li>
         ))}
       </ol>
+      <Link className="btn3 self-start" href="/teach/waitlist">
+        Where learners can find you
+      </Link>
     </div>
   );
 }

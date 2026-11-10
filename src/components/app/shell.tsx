@@ -1,23 +1,29 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { Bell, LogOut } from "lucide-react";
+import { Bell } from "lucide-react";
 import { Logo } from "@/components/ui/trust";
 import { getSessionUser, requireUser, type Role } from "@/lib/auth";
-import { signOut } from "@/app/(auth)/actions";
 import { SideNav, TabBar, type NavItem } from "./nav";
 import { getUnreadCount } from "@/lib/data/account";
+import { initials } from "@/domain/format";
+import { UserMenu } from "./user-menu";
+import { Presence } from "@/components/messages/composer";
 
 type Props = {
   areaLabel: string;
   root: string;
   nav: NavItem[];
+  /** Extra classes on the shell, e.g. the font variable and `hand-titles` for the expert workspace. */
+  className?: string;
+  /** Shown under the side navigation on wide screens. */
+  sideExtra?: React.ReactNode;
   children: React.ReactNode;
 };
 
 /** Signed-in shell, Wazi rules: no hand lettering, 17px body, sticky bars, phone tab bar. */
-export function AppShell({ areaLabel, root, nav, children }: Props) {
+export function AppShell({ areaLabel, root, nav, className, sideExtra, children }: Props) {
   return (
-    <div className="app flex min-h-dvh flex-col">
+    <div className={`app flex min-h-dvh flex-col${className ? ` ${className}` : ""}`}>
       <header className="appbar">
         <div className="mx-auto flex max-w-[1280px] items-center gap-4 px-4 py-3 sm:px-6">
           <Logo small href={root} />
@@ -30,8 +36,9 @@ export function AppShell({ areaLabel, root, nav, children }: Props) {
       </header>
       <div className="mx-auto flex w-full max-w-[1280px] flex-1 gap-8 px-4 sm:px-6">
         <aside className="hidden w-[232px] flex-none py-6 lg:block">
-          <div className="sticky top-[84px]">
+          <div className="sticky top-[84px] flex max-h-[calc(100dvh-100px)] flex-col gap-5 overflow-y-auto pr-1 pb-2">
             <SideNav items={nav} root={root} />
+            {sideExtra}
           </div>
         </aside>
         <main id="main" className="min-w-0 flex-1 py-6 pb-16">
@@ -39,6 +46,7 @@ export function AppShell({ areaLabel, root, nav, children }: Props) {
         </main>
       </div>
       <TabBar items={nav} root={root} />
+      <Presence />
     </div>
   );
 }
@@ -98,14 +106,27 @@ async function UserChip({ root }: { root: string }) {
           {unread ? <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-orange px-1 text-center text-[11px] font-semibold leading-4 text-white">{unread > 9 ? "9+" : unread}</span> : null}
         </Link>
       ) : null}
-      <span className="hidden text-[15px] font-semibold sm:inline">{user.dev ? "Preview user" : user.name ?? "Your account"}</span>
-      {user.dev ? null : (
-        <form action={signOut}>
-          <button className="iconbtn ghost" type="submit" aria-label="Sign out">
-            <LogOut size={20} aria-hidden="true" />
-          </button>
-        </form>
-      )}
+      <UserMenu
+        name={user.dev ? "Preview user" : (user.name ?? "Your account")}
+        initials={initials(user.name ?? "You") || "Y"}
+        canSignOut={!user.dev}
+        links={
+          staff
+            ? [{ href: "/staff", label: "Staff home" }]
+            : teaching
+              ? [
+                  { href: "/teach/account", label: "Profile & Account" },
+                  { href: "/teach/profile", label: "Public profile" },
+                  { href: "/teach/settings", label: "Settings" },
+                  { href: "/home", label: "Switch to learning" },
+                ]
+              : [
+                  { href: "/account/settings", label: "Account settings" },
+                  { href: "/account/receipts", label: "Receipts" },
+                  { href: isTeacher ? "/teach" : "/teach/apply", label: isTeacher ? "Switch to teaching" : "Teach on Koobi" },
+                ]
+        }
+      />
     </div>
   );
 }

@@ -10,7 +10,7 @@ export function ApplyForm({ requestId, offers }: { requestId: string; offers: { 
     <form action={action} className="flex flex-col gap-5">
       <input type="hidden" name="request_id" value={requestId} />
       <fieldset className="flex flex-col gap-2">
-        <legend className="label mb-2">Which offer?</legend>
+        <legend className="label mb-2">Which learning experience?</legend>
         {offers.map((o, i) => (
           <label key={o.id} className="check">
             <input type="radio" name="offering_id" value={o.id} defaultChecked={v.offering_id ? v.offering_id === o.id : i === 0} />

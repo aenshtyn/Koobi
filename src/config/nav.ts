@@ -12,20 +12,22 @@ export const LEARNER_NAV: NavItem[] = [
   { href: "/account/settings", label: "Settings", icon: "settings", section: "Account", tab: true },
 ];
 
+/* Expert workspace (redesign of November 2026). Statements sit inside Earnings & Payouts, the waitlist
+   inside Verification, and notifications on the bell. Web addresses did not change. */
 export const TEACHER_NAV: NavItem[] = [
   { href: "/teach", label: "Dashboard", icon: "house", tab: true },
-  { href: "/teach/offers", label: "My offers", icon: "layers", tab: true },
-  { href: "/teach/bookings", label: "Bookings", icon: "calendar", tab: true },
+  { href: "/teach/offers", label: "Learning Experiences", tabLabel: "Experiences", icon: "book", tab: true },
+  { href: "/teach/bookings", label: "Bookings", icon: "calendar", tab: true, also: ["/teach/sessions"] },
   { href: "/teach/requests", label: "Requests", icon: "inbox" },
-  { href: "/teach/availability", label: "Availability", icon: "clock" },
+  { href: "/teach/availability", label: "Availability & Schedule", icon: "clock" },
   { href: "/teach/messages", label: "Messages", icon: "messages", tab: true },
-  { href: "/teach/notifications", label: "Notifications", icon: "bell" },
-  { href: "/teach/earnings", label: "Earnings", icon: "wallet", section: "Money", tab: true },
-  { href: "/teach/statements", label: "Statements", icon: "file", section: "Money" },
-  { href: "/teach/verification", label: "Verification", icon: "badge", section: "Profile" },
-  { href: "/teach/profile", label: "Profile preview", icon: "user", section: "Profile" },
-  { href: "/teach/reviews", label: "Reviews", icon: "book", section: "Profile" },
-  { href: "/teach/settings", label: "Settings", icon: "settings", section: "Profile" },
+  { href: "/teach/business", label: "Business", icon: "chart", section: "Business" },
+  { href: "/teach/earnings", label: "Earnings & Payouts", tabLabel: "Earnings", icon: "wallet", section: "Business", tab: true, also: ["/teach/statements"] },
+  { href: "/teach/reviews", label: "Reviews & Ratings", icon: "star", section: "Business" },
+  { href: "/teach/account", label: "Profile & Account", icon: "user", section: "Profile & Account" },
+  { href: "/teach/profile", label: "Public Profile", icon: "globe", section: "Profile & Account", also: ["/teach/apply"] },
+  { href: "/teach/verification", label: "Verification", icon: "shield", section: "Profile & Account", also: ["/teach/waitlist"] },
+  { href: "/teach/settings", label: "Settings", icon: "settings", section: "Profile & Account" },
 ];
 
 export const STAFF_NAV: NavItem[] = [

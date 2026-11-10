@@ -17,7 +17,7 @@ export async function applyToRequest(_: ApplyState, form: FormData): Promise<App
   const [teacher, inbox] = await Promise.all([getMyTeacher(), getTeacherInbox()]);
   const open = inbox.find((r) => r.id === requestId);
   if (!teacher || !open) return { error: "This request is no longer open.", values };
-  if (!open.offering_ids.includes(values.offering_id)) return { error: "Choose one of your offers that fits this request.", values };
+  if (!open.offering_ids.includes(values.offering_id)) return { error: "Choose one of your learning experiences that fits this request.", values };
   if (values.pitch.length < 20) return { error: "Say in a sentence or two why you are a good fit.", values };
   if (values.pitch.length > PITCH_MAX) return { error: `Keep the pitch under ${PITCH_MAX} characters.`, values };
   const offer = (await getMyOffers(teacher.id)).find((o) => o.id === values.offering_id);
@@ -30,6 +30,6 @@ export async function applyToRequest(_: ApplyState, form: FormData): Promise<App
   const { error } = await db
     .from("teacher_applications")
     .insert({ request_id: requestId, teacher_id: teacher.id, offering_id: values.offering_id, pitch: values.pitch, proposed_price_kes: price });
-  if (error) return { error: error.code === "23505" ? "You have already applied with this offer." : error.message, values };
+  if (error) return { error: error.code === "23505" ? "You have already applied with this learning experience." : error.message, values };
   redirect("/teach/requests?applied=1");
 }

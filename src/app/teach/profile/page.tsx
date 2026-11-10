@@ -8,7 +8,7 @@ import { getCounties, getMyOffers, getMyTeacher } from "@/lib/data/listings";
 import { formatDate, initials } from "@/domain/format";
 import { LANGUAGES, TEACHER_TYPES, blocksSubmission } from "@/domain/listing-input";
 
-export const metadata: Metadata = { title: "Profile preview" };
+export const metadata: Metadata = { title: "Public Profile" };
 
 export default function ProfilePage(props: PageProps<"/teach/profile">) {
   return (
@@ -38,7 +38,7 @@ async function Profile() {
     return (
       <div className="empty max-w-[560px]">
         <p className="t3">You have not applied yet.</p>
-        <p className="help">Your profile is what learners see on every offer.</p>
+        <p className="help">Your profile is what learners see on every learning experience.</p>
         <Link className="btn" href="/teach/apply">
           Apply to teach
         </Link>
@@ -51,7 +51,7 @@ async function Profile() {
   return (
     <div className="flex max-w-[860px] flex-col gap-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="t1">Profile preview</h1>
+        <h1 className="t1">Public Profile</h1>
         <div className="flex items-center gap-3">
           <ListingPill state={teacher.listing_status} />
           <Link className="btn2 ink" href="/teach/apply">
@@ -111,10 +111,10 @@ async function Profile() {
       <section className="flex flex-col gap-3" aria-labelledby="offers-h">
         <div className="flex items-center justify-between gap-3">
           <h2 id="offers-h" className="t3">
-            Your offers
+            Your learning experiences
           </h2>
           <Link className="btn3" href="/teach/offers">
-            Manage offers
+            Manage learning experiences
           </Link>
         </div>
         {offers.length ? (
@@ -127,9 +127,9 @@ async function Profile() {
             ))}
           </ul>
         ) : (
-          <p className="help">No offers yet.</p>
+          <p className="help">No learning experiences yet.</p>
         )}
-        <p className="help">An offer appears on Explore only when both it and this profile are approved.</p>
+        <p className="help">A learning experience appears on Explore only when both it and this profile are approved.</p>
       </section>
     </div>
   );

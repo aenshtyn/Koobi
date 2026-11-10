@@ -9,10 +9,11 @@ import {
   blocksSubmission,
   parseOfferForm,
   parseTeacherForm,
-  parseWindow,
 } from "@/domain/listing-input";
 import type { ListingState } from "@/domain/listing";
+import { dayKey, parseSchedule } from "@/domain/schedule";
 import { hasSupabase } from "@/lib/supabase/config";
+import { friendly } from "@/lib/db-error";
 import { serverClient } from "@/lib/supabase/server";
 import { getCounties, getMyTeacher, getPriceBands } from "@/lib/data/listings";
 
@@ -117,16 +118,26 @@ export async function saveOffer(_: ActionState, form: FormData): Promise<ActionS
   if (!hasSupabase) return NOT_CONNECTED;
   const teacher = await getMyTeacher();
   if (!teacher) redirect("/teach/apply");
-  const parsed = parseOfferForm(form, { ...PRICE_BANDS, ...(await getPriceBands()) });
-  if (!parsed.values) return { errors: parsed.errors, values: echo(form) };
-  const v = parsed.values;
   const id = String(form.get("id") ?? "");
   const submit = form.get("intent") === "submit";
   const db = await serverClient();
+  // A published or in-review experience goes back for review on every save, so it must be complete.
+  // A draft can be saved half-finished.
+  let state: ListingState = "draft";
+  if (id) {
+    const { data: current, error: readErr } = await db.from("offerings").select("listing_status, format").eq("id", id).maybeSingle();
+    if (readErr || !current) return { error: "That learning experience was not found.", values: echo(form) };
+    state = current.listing_status as ListingState;
+    form.set("format", current.format as string); // the format is fixed once created
+  }
+  const complete = submit || (state !== "draft" && state !== "rejected");
+  const parsed = parseOfferForm(form, { ...PRICE_BANDS, ...(await getPriceBands()) }, complete ? "submit" : "draft");
+  if (!parsed.values) return { errors: parsed.errors, values: echo(form) };
+  const v = parsed.values;
 
   if (!teacher.tracks.includes(v.track)) {
     const { error } = await db.from("teacher_tracks").insert({ teacher_id: teacher.id, track: v.track });
-    if (error) return { error: `We could not add this kind of offer to your profile: ${error.message}`, values: echo(form) };
+    if (error) return { error: `We could not add this kind of learning experience to your profile: ${error.message}`, values: echo(form) };
   }
 
   const row = {
@@ -143,32 +154,45 @@ export async function saveOffer(_: ActionState, form: FormData): Promise<ActionS
     meeting_tool: v.meeting_tool,
     duration_minutes: v.duration_minutes,
     price_hour_kes: v.price_hour_kes,
-    trial_discount_pct: v.trial_discount_pct,
+    price_seat_kes: v.price_seat_kes,
+    capacity_min: v.capacity_min,
+    capacity_max: v.capacity_max,
+    sessions_in_run: v.sessions_in_run,
+    price_pkg8_kes: v.price_pkg8_kes,
+    price_pkg12_kes: v.price_pkg12_kes,
+    price_pkg16_kes: v.price_pkg16_kes,
+    trial_discount_pct: v.price_hour_kes ? v.trial_discount_pct : null,
     language_codes: v.language_codes,
   };
 
   let offerId = id;
-  let state: ListingState = "draft";
   if (id) {
-    const { data: current, error: readErr } = await db.from("offerings").select("listing_status").eq("id", id).maybeSingle();
-    if (readErr || !current) return { error: "That offer was not found.", values: echo(form) };
-    state = current.listing_status as ListingState;
     const { error } = await db.from("offerings").update(row).eq("id", id);
-    if (error) return { error: `We could not save the offer: ${error.message}`, values: echo(form) };
+    if (error) return { error: `We could not save the learning experience: ${error.message}`, values: echo(form) };
   } else {
     const { data, error } = await db
       .from("offerings")
-      .insert({ ...row, teacher_id: teacher.id, format: "one_to_one" })
+      .insert({ ...row, teacher_id: teacher.id, format: v.format })
       .select("id")
       .single();
-    if (error) return { error: `We could not create the offer: ${error.message}`, values: echo(form) };
+    if (error) return { error: `We could not create the learning experience: ${friendly(error.message)}`, values: echo(form) };
     offerId = data.id as string;
+    if (v.format === "one_to_one") await copyScheduleTo(db, teacher.id, offerId);
+  }
+
+  // The expert's own packages are saved as a set. A database without the table yet only matters when there are some.
+  const { error: clearErr } = await db.from("offering_packages").delete().eq("offering_id", offerId);
+  if (v.packages.length) {
+    const { error: pkgErr } = clearErr
+      ? { error: clearErr }
+      : await db.from("offering_packages").insert(v.packages.map((p, i) => ({ offering_id: offerId, name: p.name, description: p.description, sessions: p.sessions, price_kes: p.price_kes, validity_weeks: p.validity_weeks, position: i + 1 })));
+    if (pkgErr) return { error: `Saved, but your packages could not be saved: ${friendly(pkgErr.message)}`, values: { ...echo(form), id: offerId } };
   }
 
   let outcome = "draft";
   if (submit || state === "approved") {
     if (submit && blocksSubmission(teacher.employment_status)) {
-      return { error: "Saved as a draft. Full-time TSC teachers cannot list offers.", values: echo(form) };
+      return { error: "Saved as a draft. Full-time TSC teachers cannot list learning experiences.", values: echo(form) };
     }
     const err = await submitForReview(db, "offerings", offerId, state);
     if (err) return { error: `Saved, but we could not send it for review: ${err}`, values: echo(form) };
@@ -197,9 +221,36 @@ export async function setOfferPaused(form: FormData) {
   const id = String(form.get("id") ?? "");
   const to = form.get("to") === "paused" ? "paused" : "approved";
   const db = await serverClient();
-  await db.from("offerings").update({ listing_status: to }).eq("id", id);
+  const { error } = await db.from("offerings").update({ listing_status: to }).eq("id", id);
   refreshCatalogue();
+  if (form.get("back") === "list") redirect(`/teach/offers?done=${error ? "error" : to === "paused" ? "paused" : "resumed"}`);
   redirect(`/teach/offers/${id}`);
+}
+
+/** A draft copy of one of the expert's own learning experiences, opened in the editor (availability is not copied). */
+export async function duplicateOffer(form: FormData) {
+  if (!hasSupabase) return;
+  const id = String(form.get("id") ?? "");
+  const teacher = await getMyTeacher();
+  if (!teacher) redirect("/teach/apply");
+  const db = await serverClient();
+  const { data: o } = await db
+    .from("offerings")
+    .select("title, summary, description, outcomes, category, track, format, subject_text, curriculum_code, goal, modes, meeting_tool, duration_minutes, price_hour_kes, price_seat_kes, capacity_min, capacity_max, sessions_in_run, price_pkg8_kes, price_pkg12_kes, price_pkg16_kes, trial_discount_pct, language_codes")
+    .eq("id", id)
+    .eq("teacher_id", teacher.id)
+    .maybeSingle();
+  if (!o) redirect("/teach/offers?done=error");
+  const { data, error } = await db
+    .from("offerings")
+    .insert({ ...o, title: `${o.title} (copy)`.slice(0, 120), teacher_id: teacher.id })
+    .select("id")
+    .single();
+  if (error || !data) redirect("/teach/offers?done=error");
+  if (o.format === "one_to_one") await copyScheduleTo(db, teacher.id, data.id as string);
+  const { data: own } = await db.from("offering_packages").select("name, description, sessions, price_kes, validity_weeks, position").eq("offering_id", id);
+  if (own?.length) await db.from("offering_packages").insert(own.map((p) => ({ ...p, offering_id: data.id })));
+  redirect(`/teach/offers/${data.id}?saved=copied`);
 }
 
 export async function deleteOffer(form: FormData) {
@@ -213,22 +264,141 @@ export async function deleteOffer(form: FormData) {
 // ---------------------------------------------------------------------------
 // Weekly availability (per offer, Nairobi time)
 
-export async function addWindow(_: ActionState, form: FormData): Promise<ActionState> {
-  if (!hasSupabase) return NOT_CONNECTED;
-  const offeringId = String(form.get("offering_id") ?? "");
-  const parsed = parseWindow(form);
-  if (!parsed.values) return { errors: parsed.errors };
-  const db = await serverClient();
-  const { error } = await db.from("availability_windows").insert({ offering_id: offeringId, kind: "weekly", ...parsed.values });
-  if (error) return { error: `We could not add that time: ${error.message}` };
-  updateTag("offers");
-  return {};
+/** Experiences that carry the expert's schedule: every one-to-one that is not retired. */
+async function scheduleOfferIds(db: SupabaseClient, teacherId: string): Promise<string[]> {
+  const { data } = await db.from("offerings").select("id").eq("teacher_id", teacherId).eq("format", "one_to_one").neq("listing_status", "retired");
+  return ((data ?? []) as { id: string }[]).map((o) => o.id);
 }
 
-export async function removeWindow(form: FormData) {
-  if (!hasSupabase) return;
+/** A new experience starts with the expert's existing schedule and blocked dates. */
+async function copyScheduleTo(db: SupabaseClient, teacherId: string, newId: string) {
+  const others = (await scheduleOfferIds(db, teacherId)).filter((id) => id !== newId);
+  if (!others.length) return;
+  const { data } = await db.from("availability_windows").select("kind, weekday, starts, ends, exception_date").in("offering_id", others);
+  const seen = new Set<string>();
+  const rows = ((data ?? []) as { kind: string; weekday: number | null; starts: string | null; ends: string | null; exception_date: string | null }[]).filter((r) => {
+    const k = `${r.kind}|${r.weekday}|${r.starts}|${r.ends}|${r.exception_date}`;
+    return seen.has(k) ? false : (seen.add(k), true);
+  });
+  if (rows.length) await db.from("availability_windows").insert(rows.map((r) => ({ ...r, offering_id: newId })));
+}
+
+export type ScheduleState = { error?: string; saved?: boolean };
+
+/**
+ * Saves the whole week for every one-to-one experience. New rows go in before the old ones come out,
+ * so a failed save never leaves the expert with no hours. Confirmed bookings are not touched.
+ */
+export async function saveWeeklySchedule(_: ScheduleState, form: FormData): Promise<ScheduleState> {
+  if (!hasSupabase) return { error: NOT_CONNECTED.error };
+  const teacher = await getMyTeacher();
+  if (!teacher) redirect("/teach/apply");
+  let raw: unknown;
+  try {
+    raw = JSON.parse(String(form.get("schedule") ?? "[]"));
+  } catch {
+    return { error: "The schedule could not be read. Try again." };
+  }
+  const parsed = parseSchedule(raw);
+  if ("error" in parsed) return { error: parsed.error };
   const db = await serverClient();
-  await db.from("availability_windows").delete().eq("id", String(form.get("id") ?? ""));
+  const ids = await scheduleOfferIds(db, teacher.id);
+  if (!ids.length) return { error: "Create a one-to-one learning experience first; your hours are saved with it." };
+  const { data: old } = await db.from("availability_windows").select("id").in("offering_id", ids).eq("kind", "weekly");
+  if (parsed.values.length) {
+    const { error } = await db.from("availability_windows").insert(ids.flatMap((offering_id) => parsed.values.map((r) => ({ offering_id, kind: "weekly", ...r }))));
+    if (error) return { error: `We could not save your hours: ${error.message}` };
+  }
+  const oldIds = ((old ?? []) as { id: string }[]).map((r) => r.id);
+  if (oldIds.length) {
+    const { error } = await db.from("availability_windows").delete().in("id", oldIds);
+    if (error) return { error: `Your new hours were added, but the old ones could not be removed: ${error.message}` };
+  }
   updateTag("offers");
-  redirect("/teach/availability");
+  redirect("/teach/availability?done=saved");
+}
+
+export async function blockDate(_: ScheduleState, form: FormData): Promise<ScheduleState> {
+  if (!hasSupabase) return { error: NOT_CONNECTED.error };
+  const teacher = await getMyTeacher();
+  if (!teacher) redirect("/teach/apply");
+  const date = String(form.get("date") ?? "");
+  const whole = form.get("whole") === "on";
+  const starts = String(form.get("starts") ?? "");
+  const ends = String(form.get("ends") ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "Choose a date." };
+  if (date < dayKey(new Date())) return { error: "Choose today or a later date." };
+  if (!whole && (!/^\d{2}:\d{2}$/.test(starts) || !/^\d{2}:\d{2}$/.test(ends) || starts >= ends)) return { error: "Choose the hours to block, with the end after the start." };
+  const db = await serverClient();
+  const ids = await scheduleOfferIds(db, teacher.id);
+  if (!ids.length) return { error: "Create a one-to-one learning experience first." };
+  const { error } = await db
+    .from("availability_windows")
+    .insert(ids.map((offering_id) => ({ offering_id, kind: "blocked", exception_date: date, starts: whole ? null : starts, ends: whole ? null : ends })));
+  if (error) return { error: `We could not block that date: ${error.message}` };
+  updateTag("offers");
+  redirect("/teach/availability?done=blocked");
+}
+
+export async function unblockDate(form: FormData) {
+  if (!hasSupabase) return;
+  const teacher = await getMyTeacher();
+  if (!teacher) redirect("/teach/apply");
+  const date = String(form.get("date") ?? "");
+  const starts = String(form.get("starts") ?? "");
+  const db = await serverClient();
+  const ids = await scheduleOfferIds(db, teacher.id);
+  if (ids.length && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    let q = db.from("availability_windows").delete().in("offering_id", ids).eq("kind", "blocked").eq("exception_date", date);
+    q = starts ? q.eq("starts", starts) : q.is("starts", null);
+    await q;
+  }
+  updateTag("offers");
+  redirect("/teach/availability?done=unblocked");
+}
+
+/** Extra hours on one date, on top of the weekly hours. */
+export async function addExtraHours(_: ScheduleState, form: FormData): Promise<ScheduleState> {
+  if (!hasSupabase) return { error: NOT_CONNECTED.error };
+  const teacher = await getMyTeacher();
+  if (!teacher) redirect("/teach/apply");
+  const date = String(form.get("date") ?? "");
+  const starts = String(form.get("starts") ?? "");
+  const ends = String(form.get("ends") ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "Choose a date." };
+  if (date < dayKey(new Date())) return { error: "Choose today or a later date." };
+  if (!/^\d{2}:\d{2}$/.test(starts) || !/^\d{2}:\d{2}$/.test(ends) || starts >= ends) return { error: "Choose the extra hours, with the end after the start." };
+  const db = await serverClient();
+  const ids = await scheduleOfferIds(db, teacher.id);
+  if (!ids.length) return { error: "Create a one-to-one learning experience first." };
+  const { error } = await db.from("availability_windows").insert(ids.map((offering_id) => ({ offering_id, kind: "extra", exception_date: date, starts, ends })));
+  if (error) return { error: `We could not add those hours: ${error.message}` };
+  updateTag("offers");
+  redirect("/teach/availability?done=extra");
+}
+
+export async function removeExtraHours(form: FormData) {
+  if (!hasSupabase) return;
+  const teacher = await getMyTeacher();
+  if (!teacher) redirect("/teach/apply");
+  const date = String(form.get("date") ?? "");
+  const starts = String(form.get("starts") ?? "");
+  const db = await serverClient();
+  const ids = await scheduleOfferIds(db, teacher.id);
+  if (ids.length && /^\d{4}-\d{2}-\d{2}$/.test(date) && /^\d{2}:\d{2}/.test(starts)) {
+    await db.from("availability_windows").delete().in("offering_id", ids).eq("kind", "extra").eq("exception_date", date).eq("starts", starts);
+  }
+  updateTag("offers");
+  redirect("/teach/availability?done=extra_removed");
+}
+
+/** The expert's own booking rules: shortest notice, how far ahead, and the gap between lessons. */
+export async function saveBookingPrefs(_: ScheduleState, form: FormData): Promise<ScheduleState> {
+  if (!hasSupabase) return { error: NOT_CONNECTED.error };
+  const n = (k: string) => Number(form.get(k));
+  const db = await serverClient();
+  const { error } = await db.rpc("set_booking_preferences", { p_notice_hours: n("min_notice_hours"), p_advance_days: n("advance_days"), p_buffer_minutes: n("buffer_minutes") });
+  if (error) return { error: friendly(error.message) };
+  updateTag("offers");
+  redirect("/teach/availability?done=prefs");
 }

@@ -62,3 +62,42 @@ export async function replyToReview(_: FormState, form: FormData): Promise<FormS
   if (!data?.length) return { error: "You cannot reply to this review." };
   redirect("/teach/reviews?done=replied");
 }
+
+// ---------------------------------------------------------------------------
+// Booking extras: the expert's private note, and moving a lesson (FR-BOOK-4). Both sides use the last two.
+
+export async function saveBookingNote(_: FormState, form: FormData): Promise<FormState & { saved?: boolean }> {
+  const booking = uuid(form.get("booking_id"));
+  if (!hasSupabase || !booking) return { error: "Not connected to the database." };
+  const db = await serverClient();
+  const { error } = await db.rpc("save_booking_note", { p_booking: booking, p_body: String(form.get("body") ?? "").slice(0, 2000) });
+  if (error) return { error: friendly(error.message) };
+  return { saved: true };
+}
+
+const backTo = (form: FormData, booking: string) => (form.get("side") === "learner" ? `/bookings/${booking}` : `/teach/bookings/${booking}`);
+
+export async function proposeReschedule(_: FormState, form: FormData): Promise<FormState> {
+  const booking = uuid(form.get("booking_id"));
+  if (!hasSupabase || !booking) return { error: "Not connected to the database." };
+  const date = String(form.get("date") ?? "");
+  const time = String(form.get("time") ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return { error: "Choose the new date and time." };
+  const start = new Date(`${date}T${time}:00+03:00`); // Nairobi time
+  if (Number.isNaN(start.getTime())) return { error: "Choose the new date and time." };
+  const db = await serverClient();
+  const { error } = await db.rpc("propose_reschedule", { p_booking: booking, p_new_start: start.toISOString() });
+  if (error) return { error: friendly(error.message) };
+  redirect(`${backTo(form, booking)}?done=move_asked`);
+}
+
+export async function answerReschedule(_: FormState, form: FormData): Promise<FormState> {
+  const booking = uuid(form.get("booking_id"));
+  const proposal = uuid(form.get("proposal_id"));
+  if (!hasSupabase || !booking || !proposal) return { error: "Not connected to the database." };
+  const accept = form.get("answer") === "accept";
+  const db = await serverClient();
+  const { error } = await db.rpc("answer_reschedule", { p_proposal: proposal, p_accept: accept });
+  if (error) return { error: friendly(error.message) };
+  redirect(`${backTo(form, booking)}?done=${accept ? "moved" : form.get("answer") === "withdraw" ? "move_withdrawn" : "move_declined"}`);
+}

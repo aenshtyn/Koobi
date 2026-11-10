@@ -5,7 +5,7 @@ import { getTeacherReviews } from "@/lib/data/lessons";
 import { formatDate } from "@/domain/format";
 import { ReplyForm } from "../sessions/forms";
 
-export const metadata: Metadata = { title: "Reviews" };
+export const metadata: Metadata = { title: "Reviews & Ratings" };
 
 /** T24: reply once to each review (FR-REV-1). Ratings show publicly from three reviews. */
 export default function TeachReviewsPage(props: PageProps<"/teach/reviews">) {
@@ -22,7 +22,7 @@ async function Reviews({ searchParams }: { searchParams: Promise<Record<string, 
   const avg = published.length ? published.reduce((s, r) => s + r.rating, 0) / published.length : null;
   return (
     <div className="flex max-w-[720px] flex-col gap-6">
-      <h1 className="t1">Reviews</h1>
+      <h1 className="t1">Reviews & Ratings</h1>
       {sp.done === "replied" ? (
         <p className="panel escrow" role="status">
           Reply posted.

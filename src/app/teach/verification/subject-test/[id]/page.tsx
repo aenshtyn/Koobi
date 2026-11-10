@@ -25,7 +25,7 @@ async function Body({ params, searchParams }: { params: Promise<{ id: string }>;
   return (
     <div className="flex max-w-[680px] flex-col gap-6">
       <Link className="btn3 self-start" href={`/teach/offers/${offer.id}`}>
-        Back to the offer
+        Back to the learning experience
       </Link>
       <h1 className="t1">Subject test</h1>
       <p className="text-ink-2">{offer.title}</p>

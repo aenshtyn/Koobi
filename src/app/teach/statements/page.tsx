@@ -22,7 +22,10 @@ async function Statements() {
   const rows = payouts.filter((p) => p.status !== "excluded" && p.status !== "cancelled");
   return (
     <div className="flex max-w-[860px] flex-col gap-6">
-      <h1 className="t1">Statements</h1>
+      <Link className="btn3 self-start" href="/teach/earnings">
+        Earnings & Payouts
+      </Link>
+      <h1 className="t1">Payout statements</h1>
       {rows.length ? (
         <div className="overflow-x-auto">
           <table className="table-k min-w-[640px]">

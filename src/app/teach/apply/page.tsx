@@ -41,7 +41,7 @@ async function Apply() {
         <h1 className="t1">{teacher ? "Your teaching profile" : "Apply to teach"}</h1>
         <p className="text-ink-2">
           {teacher
-            ? "Learners see this on every offer. Changes to a live profile are reviewed again."
+            ? "Learners see this on every learning experience. Changes to a live profile are reviewed again."
             : "Tell us what you have done. Save a draft any time; send it for review when it is ready. We usually decide within two working days."}
         </p>
       </div>

@@ -20,7 +20,7 @@ export default function TeachRequestsPage(props: PageProps<"/teach/requests">) {
         <div className="flex flex-col gap-1">
           <h1 className="t1">Requests</h1>
           <p className="text-ink-2">
-            Open requests that fit your approved offers. Apply with a short pitch; the concierge picks up to three for each learner.
+            Open requests that fit your published learning experiences. Apply with a short pitch; the concierge picks up to three for each learner.
           </p>
         </div>
         <Suspense fallback={null}>
@@ -50,7 +50,7 @@ async function List() {
     return (
       <div className="empty">
         <Inbox size={24} aria-hidden="true" />
-        <p className="font-semibold">Requests appear once your profile and an offer are approved.</p>
+        <p className="font-semibold">Requests appear once your profile and a learning experience are approved.</p>
         <Link className="btn3" href="/teach">
           See what is left to do
         </Link>
@@ -61,7 +61,7 @@ async function List() {
     return (
       <div className="empty">
         <Inbox size={24} aria-hidden="true" />
-        <p className="font-semibold">No open requests fit your offers right now.</p>
+        <p className="font-semibold">No open requests fit your learning experiences right now.</p>
         <p className="help">New requests show here as they arrive.</p>
       </div>
     );

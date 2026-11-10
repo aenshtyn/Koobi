@@ -84,7 +84,7 @@ export const CHECKS: Record<string, CheckConfig> = {
   subject_test: {
     type: "subject_test",
     title: "Subject test",
-    intro: "A short test in the subject of this offer, booked with a reviewer.",
+    intro: "A short test in the subject of this learning experience, booked with a reviewer.",
     kinds: [],
     fields: [{ name: "preferred_times", label: "Two times that suit you this week", kind: "textarea", required: true }],
   },
