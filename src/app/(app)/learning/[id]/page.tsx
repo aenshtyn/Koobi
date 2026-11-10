@@ -10,7 +10,7 @@ import { BOOKING_LABELS, BOOKING_TONE, KIND_LABELS } from "@/domain/booking";
 import { EXPERIENCE_LABELS, EXPERIENCE_TONE, LEARNER_MODES, percent } from "@/domain/learning";
 import { formatDate, formatDayMonth, formatDuration, formatTime, initials } from "@/domain/format";
 import { FORMATS } from "@/domain/taxonomy";
-import { BookingActions, DoneBanner, FormatTag, MessageLink } from "../../bookings/booking-bits";
+import { BookingActions, DoneBanner, FormatTag, MessageLink, StatusPill } from "../../bookings/booking-bits";
 
 export const metadata: Metadata = { title: "Learning experience" };
 
@@ -176,7 +176,9 @@ async function Details({ params, searchParams }: { params: Promise<{ id: string 
                 </span>{" "}
                 East Africa Time · {LEARNER_MODES[e.next.booking.mode] ?? e.next.booking.mode}
               </span>
-              <span className={`pill mt-1 self-start ${BOOKING_TONE[e.next.booking.status] ?? "bg-sand"}`}>{BOOKING_LABELS[e.next.booking.status] ?? e.next.booking.status}</span>
+              <span className="mt-1 self-start">
+                <StatusPill b={e.next.booking} />
+              </span>
             </div>
             <BookingActions b={e.next.booking} at={e.next.at} ends={e.next.ends} now={now.getTime()} back={back} moves={moves} />
           </div>
