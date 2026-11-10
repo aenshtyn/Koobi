@@ -142,6 +142,13 @@ async function main() {
   } finally {
     await db.exec('rollback');
   }
+
+  await db.exec('begin');
+  try {
+    await checkLearnerWorkspace();
+  } finally {
+    await db.exec('rollback');
+  }
 }
 
 // ---------------------------------------------------------------------------- helpers
@@ -1934,5 +1941,126 @@ async function checkHardening() {
     ok('learners and teachers are not affected', learnerAal1[0].ok === true, learnerAal1);
   } catch (e) {
     if (!/^hardening:/.test(e?.message ?? '')) fail('hardening: flow stopped', e.message);
+  }
+}
+
+// ---------------------------------------------------------------------------- learner workspace (migration 1800)
+// Following an expert and its notices, a conversation opened from a paid booking, learning preferences.
+async function checkLearnerWorkspace() {
+  const L = 'e1111111-1111-1111-1111-111111111111';
+  const T = 'e2222222-2222-2222-2222-222222222222';
+  const X = 'e3333333-3333-3333-3333-333333333333';
+  const step = async (name, fn) => {
+    try {
+      const r = await fn();
+      pass(`learner: ${name}`);
+      return r;
+    } catch (e) {
+      fail(`learner: ${name}`, e.message);
+      throw e;
+    }
+  };
+  const ok = (name, cond, detail) => (cond ? pass(`learner: ${name}`) : fail(`learner: ${name}`, JSON.stringify(detail)));
+  const err = (name, sub, sql, pattern) => expectError(`learner: ${name}`, 'authenticated', sub, q(sql), pattern);
+  const notices = async (user, key) =>
+    (await act('postgres', null, `select count(*)::int n from public.notifications where user_id = $1 and template = $2 and channel = 'in_app'`, [user, key]))[0].n;
+  const approve = async (tbl, id) => {
+    await act('postgres', null, `update public.${tbl} set listing_status = 'pending_review' where id = $1`, [id]);
+    await act('postgres', null, `update public.${tbl} set listing_status = 'approved' where id = $1`, [id]);
+  };
+  try {
+    await act('postgres', null, `insert into auth.users (id, email, phone, raw_user_meta_data) values
+      ($1, 'fl@koobi.test', '254711000061', '{"display_name": "Faith Learner"}'), ($2, 'ft@koobi.test', '254722000062', '{"display_name": "Tom Expert"}'),
+      ($3, 'fx@koobi.test', '254711000063', '{"display_name": "Xavier Other"}')`, [L, T, X]);
+    await act('postgres', null, `insert into public.user_roles (user_id, role) values ($1, 'learner'), ($2, 'teacher'), ($3, 'learner')`, [L, T, X]);
+    const [teacher] = await act('postgres', null, `insert into public.teachers (user_id, display_name, headline) values ($1, 'Tom Expert', 'Ran a farm shop for ten years.') returning id, slug`, [T]);
+    const offering = async (title, extra = `'one_to_one', 'Sales', '{online}', 'google_meet', 60, 1800, null, null, null`) =>
+      (await act('postgres', null, `insert into public.offerings (teacher_id, title, summary, category, track, format, subject_text,
+          modes, meeting_tool, duration_minutes, price_hour_kes, price_seat_kes, capacity_min, capacity_max, language_codes)
+        values ($1, $2, 'x', 'business_entrepreneurship', 'adults_professional', ${extra}, '{en}') returning id, slug`, [teacher.id, title]))[0];
+    const first = await offering('Selling at a market stall');
+    await approve('teachers', teacher.id);
+    await approve('offerings', first.id);
+
+    // ---- following
+    await err('an unknown profile cannot be followed', L, `select public.follow_teacher('nobody-here')`, /not open/);
+    await err('an expert cannot follow their own profile', T, `select public.follow_teacher('${teacher.slug}')`, /your own profile/);
+    await expectError('learner: a visitor cannot follow', 'anon', null, q(`select public.follow_teacher('${teacher.slug}')`), /permission denied/);
+    await err('follows are written only through the function', L, `insert into public.teacher_follows (teacher_id) values ('${teacher.id}')`, /permission denied/);
+    await step('a learner follows an expert', () => act('authenticated', L, `select public.follow_teacher($1)`, [teacher.slug]));
+    await act('authenticated', L, `select public.follow_teacher($1)`, [teacher.slug]);
+    const mine = await act('authenticated', L, `select * from public.my_following()`);
+    const theirs = await act('authenticated', X, `select count(*)::int n from public.teacher_follows`);
+    ok('following twice keeps one follow, listed with what the expert offers', mine.length === 1 && mine[0].slug === teacher.slug && mine[0].visible === true
+      && mine[0].experiences === 1 && mine[0].latest_title === 'Selling at a market stall' && mine[0].categories.includes('business_entrepreneurship'), mine);
+    ok('nobody else can see who a learner follows', theirs[0].n === 0, theirs);
+
+    // ---- notices: a new learning experience, new dates, new times
+    const second = await offering('Pricing your produce');
+    await approve('offerings', second.id);
+    await act('postgres', null, `select private.notify_followers($1, 'follow_new_experience', 'offering', $2, '{}'::jsonb)`, [teacher.id, second.id]);
+    const [note] = await act('postgres', null, `select payload from public.notifications where user_id = $1 and template = 'follow_new_experience'`, [L]);
+    ok('a follower is told once about a new learning experience, with a link to it', (await notices(L, 'follow_new_experience')) === 1
+      && note?.payload?.link === `/offers/${second.slug}` && note.payload.teacher === 'Tom Expert' && note.payload.title === 'Pricing your produce', note);
+    ok('nobody who does not follow is told', (await notices(X, 'follow_new_experience')) === 0, null);
+
+    const workshop = await offering('Bookkeeping workshop', `'workshop', 'Bookkeeping', '{online}', 'google_meet', 120, null, 2000, 2, 10`);
+    await approve('offerings', workshop.id);
+    await step('the expert opens dates for a workshop', () => act('authenticated', T, `select public.create_run($1, now() + interval '9 days')`, [workshop.id]));
+    ok('a follower is told about new dates', (await notices(L, 'follow_new_dates')) === 1 && (await notices(L, 'follow_new_experience')) === 2, null);
+
+    await act('authenticated', T, `insert into public.availability_windows (offering_id, kind, weekday, starts, ends) values
+      ($1, 'weekly', 1, '09:00', '12:00'), ($1, 'weekly', 3, '14:00', '17:00')`, [first.id]);
+    await act('authenticated', T, `insert into public.availability_windows (offering_id, kind, weekday, starts, ends) values ($1, 'weekly', 5, '09:00', '11:00')`, [first.id]);
+    await act('authenticated', T, `insert into public.availability_windows (offering_id, kind, exception_date) values ($1, 'blocked', current_date + 3)`, [first.id]);
+    ok('new bookable times are told once a week, however many are saved', (await notices(L, 'follow_new_times')) === 1, await notices(L, 'follow_new_times'));
+
+    // ---- the learner's switch, and unfollowing
+    await step('the learner switches expert updates off', () =>
+      act('authenticated', L, `insert into public.notification_preferences (user_id, follow_updates) values ($1, false)
+        on conflict (user_id) do update set follow_updates = false`, [L]));
+    const third = await offering('Stock keeping basics');
+    await approve('offerings', third.id);
+    ok('with updates off, nothing new is sent', (await notices(L, 'follow_new_experience')) === 2, null);
+    await act('authenticated', L, `update public.notification_preferences set follow_updates = true where user_id = $1`, [L]);
+
+    // ---- a conversation from a paid booking
+    const [learner] = await act('authenticated', L, `insert into public.learners (user_id, alias) values ($1, 'Faith') returning id`, [L]);
+    const [bk] = await act('authenticated', L, `insert into public.bookings (offering_id, learner_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)
+      values ($1, $2, 'single', 'online', now() + interval '4 days', 'cancellation-2026-11-v1', now()) returning id`, [first.id, learner.id]);
+    await act('authenticated', L, `update public.bookings set status = 'awaiting_payment' where id = $1`, [bk.id]);
+    await err('no conversation before the booking is paid', L, `select public.open_pair_thread('${bk.id}')`, /once the booking is paid/);
+    const [pay] = await act('authenticated', L, `insert into public.payments (booking_id, method) values ($1, 'mpesa_stk') returning id`, [bk.id]);
+    await act('service_role', null, `select public.mark_payment_pending($1, 'ps_follow_1')`, [pay.id]);
+    await act('service_role', null, `select public.record_payment_success($1, 'ps_follow_1', 0, null)`, [pay.id]);
+    await err('only the payer can open the conversation', X, `select public.open_pair_thread('${bk.id}')`, /not your booking/);
+    const [{ open_pair_thread: thread }] = await step('the payer of a paid booking opens a conversation with the expert', () =>
+      act('authenticated', L, `select public.open_pair_thread($1)`, [bk.id]));
+    const [{ open_pair_thread: again }] = await act('authenticated', L, `select public.open_pair_thread($1)`, [bk.id]);
+    const asLearner = await act('authenticated', L, `select * from public.my_threads()`);
+    const asExpert = await act('authenticated', T, `select * from public.my_threads()`);
+    const [{ d: det }] = await act('authenticated', L, `select public.thread_details($1) d`, [thread]);
+    ok('asking again returns the same conversation', thread === again && asLearner.length === 1, { thread, again });
+    ok('both sides see it, named from the booking, with contacts shared', asLearner[0]?.other_name === 'Tom Expert' && asLearner[0].title === 'Selling at a market stall'
+      && asLearner[0].contact_revealed === true && asExpert[0]?.other_name === 'Faith' && det?.offering?.slug === first.slug && det.bookings.length === 1, { asLearner, asExpert, det });
+    await step('the learner writes to the expert', () => act('authenticated', L, `insert into public.messages (thread_id, body) values ($1, 'Hello, see you on the day.')`, [thread]));
+
+    await step('the learner unfollows', () => act('authenticated', L, `select public.unfollow_teacher($1)`, [teacher.slug]));
+    const [after] = await act('postgres', null, `select (select count(*)::int from public.teacher_follows where user_id = $1) f,
+        (select status::text from public.bookings where id = $2) b, (select status::text from public.payments where id = $3) p,
+        (select count(*)::int from public.message_threads where id = $4) t`, [L, bk.id, pay.id, thread]);
+    const fourth = await offering('Finding wholesale buyers');
+    await approve('offerings', fourth.id);
+    ok('unfollowing removes only the follow: the booking, payment and conversation stay', after.f === 0 && after.b === 'paid' && after.p === 'succeeded' && after.t === 1, after);
+    ok('and no further notices arrive', (await notices(L, 'follow_new_experience')) === 2, null);
+
+    // ---- learning preferences
+    await step('a learner saves learning preferences', () =>
+      act('authenticated', L, `update public.profiles set interest_categories = '{business_entrepreneurship,school_academic}', preferred_formats = '{one_to_one}', preferred_languages = '{en,sw}' where id = $1`, [L]));
+    await err('only known categories are kept', L, `update public.profiles set interest_categories = '{astrology}' where id = '${L}'`, /profiles_interest_categories/);
+    const [other] = await act('authenticated', X, `update public.profiles set preferred_formats = '{workshop}' where id = $1 returning id`, [L]).then((r) => [r[0] ?? null]);
+    ok("nobody can change another person's preferences", other === null, other);
+  } catch (e) {
+    if (!/^learner:/.test(e?.message ?? '')) fail('learner: flow stopped', e.message);
   }
 }
