@@ -7,7 +7,7 @@ import { Logo } from "@/components/ui/trust";
 import { getSessionUser } from "@/lib/auth";
 import { getTransactions } from "@/lib/data/learning";
 import { REFUND_STATUS_LABELS } from "@/domain/booking";
-import { METHOD_LABELS, PAYMENT_LABELS } from "@/domain/learning";
+import { METHOD_LABELS, PAYMENT_LABELS, PAYMENT_TONE } from "@/domain/learning";
 import { formatDate, formatKES, formatTime } from "@/domain/format";
 import { PrintButton } from "./print-button";
 
@@ -62,9 +62,9 @@ async function Receipt({ params }: { params: Promise<{ id: string }> }) {
           <div className="flex flex-wrap items-center justify-between gap-x-4 py-2.5 text-[15px] leading-[22px]">
             <dt className="font-semibold">Transaction status</dt>
             <dd>
-              <span className="pill bg-forest-tint text-forest-ink">
-                <CircleCheck size={15} aria-hidden="true" />
-                {t.status === "succeeded" ? "Successful" : (PAYMENT_LABELS[t.status] ?? t.status)}
+              <span className={`pill ${PAYMENT_TONE[t.status] ?? "bg-sand"}`}>
+                {t.status === "succeeded" ? <CircleCheck size={15} aria-hidden="true" /> : null}
+                {PAYMENT_LABELS[t.status] ?? t.status}
               </span>
             </dd>
           </div>
@@ -91,7 +91,8 @@ async function Receipt({ params }: { params: Promise<{ id: string }> }) {
           </div>
         ) : null}
         <p className="rounded-[14px] bg-orange-wash px-4 py-3 text-[15px] leading-[22px]">
-          <span className="font-semibold">Thank you for choosing Koobi.</span> Your payment is held safely and released to the expert only after the lesson is confirmed.
+          <span className="font-semibold">Thank you for choosing Koobi.</span>{" "}
+          {t.status === "succeeded" ? "Your payment is held safely and released to the expert only after the lesson is confirmed." : "The refunds for this payment are listed above."}
         </p>
       </article>
       <div className="no-print flex flex-wrap gap-3">

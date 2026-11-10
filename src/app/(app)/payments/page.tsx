@@ -131,7 +131,8 @@ async function Payments({ searchParams }: { searchParams: Promise<Record<string,
   const needle = q.toLowerCase();
   const since = period === "all" ? 0 : now - Number(period) * 30.44 * 86_400_000;
 
-  const paidIn = all.filter((t) => hasReceipt(t)).reduce((n, t) => n + t.amount_kes, 0);
+  // Paying with credit moves money already counted, so it is not spent twice.
+  const paidIn = all.filter((t) => hasReceipt(t) && t.method !== "credit").reduce((n, t) => n + t.amount_kes, 0);
   const pending = all.filter((t) => t.status === "pending").reduce((n, t) => n + t.amount_kes, 0);
   const refunded = all.reduce((n, t) => n + t.refunded_kes, 0);
   const onItsWay = credits.lines.reduce((n, l) => n + l.open_refund_kes, 0);
@@ -157,7 +158,7 @@ async function Payments({ searchParams }: { searchParams: Promise<Record<string,
       </div>
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <StatCard icon={Wallet} value={formatKES(paidIn)} label="Total spent" sub="Payments that went through" />
+        <StatCard icon={Wallet} value={formatKES(paidIn)} label="Total spent" sub="Paid by M-Pesa or card" />
         <StatCard icon={Clock} tone="sand" value={formatKES(pending)} label="Pending payments" sub="Waiting for confirmation" />
         <StatCard icon={RotateCcw} tone="forest" value={formatKES(refunded)} label="Total refunded" sub="Sent back to you" />
         <StatCard icon={CreditCard} tone="forest" value={formatKES(credits.balance - onItsWay)} label="Credit" sub="To spend on your next booking" href="/account/credits" />
@@ -203,7 +204,7 @@ async function Payments({ searchParams }: { searchParams: Promise<Record<string,
           {shown.length ? (
             <>
               <div className="card hidden overflow-x-auto p-0! md:block">
-                <table className="table-k min-w-[720px]">
+                <table className="table-k min-w-[620px]">
                   <thead>
                     <tr>
                       <th scope="col">Reference</th>
@@ -212,15 +213,16 @@ async function Payments({ searchParams }: { searchParams: Promise<Record<string,
                       <th scope="col">Amount</th>
                       <th scope="col">Method</th>
                       <th scope="col">Status</th>
-                      <th scope="col">
-                        <span className="sr-only">Action</span>
-                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {shown.map((t) => (
                       <tr key={t.id} className={open?.id === t.id ? "bg-orange-wash" : ""}>
-                        <td className="mono text-[14px]">{t.platform_ref}</td>
+                        <td className="mono text-[14px]">
+                          <Link href={href({ tx: t.id })} scroll={false} aria-label={`Details of ${t.platform_ref}`}>
+                            {t.platform_ref}
+                          </Link>
+                        </td>
                         <td>{t.title ?? "—"}</td>
                         <td className="mono text-[14px] whitespace-nowrap">
                           {formatDate(paidOn(t))}
@@ -231,11 +233,6 @@ async function Payments({ searchParams }: { searchParams: Promise<Record<string,
                         <td>{METHOD_LABELS[t.method] ?? t.method}</td>
                         <td>
                           <Status status={t.status} />
-                        </td>
-                        <td>
-                          <Link className="btn3 min-h-[32px]!" href={href({ tx: t.id })} scroll={false} aria-label={`Details of ${t.platform_ref}`}>
-                            Details
-                          </Link>
                         </td>
                       </tr>
                     ))}

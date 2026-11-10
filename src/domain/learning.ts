@@ -100,7 +100,7 @@ export const PAYMENT_TONE: Record<string, string> = {
   partially_refunded: "bg-info-tint text-info",
   charged_back: "bg-error-tint text-error",
 };
-export const METHOD_LABELS: Record<string, string> = { mpesa_stk: "M-Pesa", card: "Card", payment_link: "Payment link" };
+export const METHOD_LABELS: Record<string, string> = { mpesa_stk: "M-Pesa", card: "Card", payment_link: "Payment link", credit: "Koobi credit" };
 
 /** Which tab of Payments & Transactions a payment sits under. */
 export function paymentTab(status: string): "successful" | "pending" | "failed" | "refunded" {

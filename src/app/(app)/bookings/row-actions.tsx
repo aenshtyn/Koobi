@@ -25,8 +25,11 @@ function Summary({ s }: { s: RowSummary }) {
       <span className="flex min-w-0 flex-col">
         <span className="font-semibold">{s.title}</span>
         <span className="text-[15px] text-ink-2">{s.expert}</span>
-        <span className="mono text-[14px] leading-5">
-          {s.date} · {s.time} · {s.length}
+        <span className="text-[14px] leading-5">
+          <span className="mono">
+            {s.date} · {s.time}
+          </span>{" "}
+          · {s.length}
         </span>
         <span className="mono text-[14px] leading-5">{s.price}</span>
       </span>

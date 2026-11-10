@@ -242,8 +242,9 @@ function Details({ thread, details, phone, now, side }: { thread: ThreadSummary;
   const booking = next ?? bookings[0];
   const o = details?.offering;
   const teaching = side === "teacher";
-  // The learner opens their own view of it, or the public page when they have not booked it yet.
-  const experienceHref = !o ? null : teaching ? `/teach/offers/${o.id}` : bookings.length ? `/learning/${o.id}` : o.published ? `/offers/${o.slug}` : null;
+  // The learner opens their own view of it, or the public page when they have nothing booked on it.
+  const booked = bookings.some((b) => !["cancelled", "lapsed", "no_show_teacher"].includes(b.status));
+  const experienceHref = !o ? null : teaching ? `/teach/offers/${o.id}` : booked ? `/learning/${o.id}` : o.published ? `/offers/${o.slug}` : null;
   return (
     <aside className={`card flex flex-col gap-5 overflow-y-auto p-5 lg:col-start-2 xl:col-start-auto ${PANE_XL}`} aria-labelledby="det-h">
       <h2 id="det-h" className="t3 flex items-center gap-2">

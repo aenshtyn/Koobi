@@ -44,7 +44,7 @@ function Row({ b, now, moves, named }: { b: LearnerBooking; now: number; moves: 
           <BookOpen size={24} />
         </span>
         <div className="flex min-w-0 flex-col gap-1.5">
-          <Link href={`/learning/${b.offering_id}`} className="font-semibold text-ink no-underline hover:underline">
+          <Link href={b.group === "cancelled" ? `/bookings/${b.id}` : `/learning/${b.offering_id}`} className="font-semibold text-ink no-underline hover:underline">
             {b.title}
           </Link>
           <span className="flex items-center gap-1.5 text-[15px] text-ink-2">
@@ -204,7 +204,7 @@ async function Bookings({ searchParams }: { searchParams: Promise<Record<string,
           <div className="empty">
             <CalendarDays size={24} aria-hidden="true" />
             <p className="font-semibold">{all.length ? `Nothing under ${tabLabel.toLowerCase()}${filtered ? " with these filters" : ""}.` : "No bookings yet."}</p>
-            <p className="help">{all.length ? "Try another tab, or clear the filters." : "When you book a session, class, workshop or programme, it shows here."}</p>
+            <p className="help">{!all.length ? "When you book a session, class, workshop or programme, it shows here." : filtered ? "Try another tab, or clear the filters." : "Your other bookings are under the other tabs."}</p>
             {all.length ? null : (
               <Link className="btn2" href="/explore">
                 Explore learning experiences
