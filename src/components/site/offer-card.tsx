@@ -5,6 +5,7 @@ import { FORMATS, categoryByCode, isInPerson, isOnline } from "@/domain/taxonomy
 import { formatDuration, formatKES, formatWeekday, initials } from "@/domain/format";
 import { Badges } from "@/components/ui/trust";
 import { StarIcon } from "@/components/ui/doodles";
+import { FollowButton } from "@/components/app/follow-button";
 
 const RADII = ["", "r2", "r3", "r4"];
 const AV = ["", "g", "r", "s"];
@@ -83,6 +84,9 @@ export function OfferCard({ offer, index = 0 }: { offer: ExploreOffer; index?: n
           <span className="flex min-w-0 flex-col gap-0.5">
             <span className="text-sm font-semibold">{offer.teacher_name}</span>
             <span className="text-xs text-ink-2">{offer.teacher_headline}</span>
+          </span>
+          <span className="ml-auto flex-none">
+            <FollowButton slug={offer.teacher_slug} name={offer.teacher_name} small />
           </span>
         </div>
         <Badges badges={offer.badges} small />

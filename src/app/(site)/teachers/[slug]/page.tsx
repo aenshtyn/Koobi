@@ -9,6 +9,7 @@ import { OfferCard, Rating, avatarTone } from "@/components/site/offer-card";
 import { BlockSkeleton } from "@/components/site/skeletons";
 import { CheckLedger } from "@/components/ui/trust";
 import { Spark } from "@/components/ui/doodles";
+import { FollowButton } from "@/components/app/follow-button";
 
 export async function generateMetadata(props: PageProps<"/teachers/[slug]">): Promise<Metadata> {
   const { slug } = await props.params;
@@ -90,6 +91,10 @@ async function Teacher({ params }: { params: Promise<{ slug: string }> }) {
                     Replies in about <span className="mono">{Math.max(1, Math.round(teacher.response_time_minutes / 60))}</span> h
                   </span>
                 ) : null}
+              </div>
+              <div className="flex flex-col items-start gap-1.5">
+                <FollowButton slug={teacher.slug} name={teacher.display_name} />
+                <p className="text-sm text-ink-2">Follow {first} to hear about new learning experiences, dates and times.</p>
               </div>
             </div>
           </section>
