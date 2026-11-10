@@ -48,22 +48,24 @@ export async function getGuardian(): Promise<{ guardian: { id: string; display_n
   return { guardian, children: (children.data ?? []) as Child[], check: (check.data as { id: string; status: string; failure_reason: string | null } | null) ?? null };
 }
 
-export type Prefs = { whatsapp_opt_in: boolean; sms_enabled: boolean; email_enabled: boolean; marketing_opt_in: boolean };
+/** `follow_updates` is absent until the database has following (learner workspace migration). */
+export type Prefs = { whatsapp_opt_in: boolean; sms_enabled: boolean; email_enabled: boolean; marketing_opt_in: boolean; follow_updates?: boolean };
 
-export async function getSettings(): Promise<{ profile: { display_name: string | null; email: string | null; phone_e164: string | null; locale: string; time_zone: string } | null; prefs: Prefs; requests: { id: string; kind: string; status: string; note: string | null; created_at: string }[] }> {
+export async function getSettings(): Promise<{ profile: { display_name: string | null; email: string | null; phone_e164: string | null; locale: string; time_zone: string } | null; prefs: Prefs; followReady: boolean; requests: { id: string; kind: string; status: string; note: string | null; created_at: string }[] }> {
   const prefs: Prefs = { whatsapp_opt_in: false, sms_enabled: true, email_enabled: true, marketing_opt_in: false };
-  if (!hasSupabase) return { profile: null, prefs, requests: [] };
+  if (!hasSupabase) return { profile: null, prefs, followReady: false, requests: [] };
   const db = await serverClient();
   const { data: auth } = await db.auth.getUser();
-  if (!auth.user) return { profile: null, prefs, requests: [] };
+  if (!auth.user) return { profile: null, prefs, followReady: false, requests: [] };
   const [profile, p, requests] = await Promise.all([
     db.from("profiles").select("display_name, email, phone_e164, locale, time_zone").eq("id", auth.user.id).maybeSingle(),
-    db.from("notification_preferences").select("whatsapp_opt_in, sms_enabled, email_enabled, marketing_opt_in").eq("user_id", auth.user.id).maybeSingle(),
+    db.from("notification_preferences").select("*").eq("user_id", auth.user.id).maybeSingle(),
     db.from("data_requests").select("id, kind, status, note, created_at").eq("user_id", auth.user.id).order("created_at", { ascending: false }),
   ]);
   return {
     profile: profile.data as { display_name: string | null; email: string | null; phone_e164: string | null; locale: string; time_zone: string } | null,
     prefs: (p.data as Prefs | null) ?? prefs,
+    followReady: !p.error && (await db.from("notification_preferences").select("follow_updates").limit(1)).error === null,
     requests: (requests.data ?? []) as { id: string; kind: string; status: string; note: string | null; created_at: string }[],
   };
 }
