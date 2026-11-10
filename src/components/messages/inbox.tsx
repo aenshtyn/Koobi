@@ -10,20 +10,24 @@ import { FORMATS, type FormatCode } from "@/domain/taxonomy";
 import { Bubble } from "./bubble";
 import { Composer, MarkRead, ScrollPane } from "./composer";
 
-const BASE = "/teach/messages";
+type Side = "teacher" | "learner";
+type Base = "/teach/messages" | "/messages";
 // Pane heights, written out in full so the stylesheet picks each one up.
 const PANE = "h-[calc(100dvh-190px)] min-h-[440px] lg:h-[calc(100dvh-250px)] lg:min-h-[460px]";
 const PANE_LG = "lg:h-[calc(100dvh-250px)] lg:min-h-[460px]";
 const PANE_XL = "xl:h-[calc(100dvh-250px)] xl:min-h-[460px]";
 const TONES = ["", "g", "r", "s"] as const;
 const tone = (name: string) => TONES[[...name].reduce((n, ch) => n + ch.charCodeAt(0), 0) % TONES.length];
+/** Booking states that count as a live booking between the pair. */
 const LIVE = ["paid", "accepted", "scheduled", "in_progress"];
 
 /**
- * T22: the expert's messages in three panes: conversations, the open conversation, and what it is
- * about. On a phone the list and the conversation are separate screens, with the details underneath.
+ * T22 and L22: messages in three panes: conversations, the open conversation, and what it is about.
+ * On a phone the list and the conversation are separate screens, with the details underneath.
+ * `side` is who is reading: the expert (the default) or the learner.
  */
-export async function Inbox({ id, q = "" }: { id?: string; q?: string }) {
+export async function Inbox({ id, q = "", side = "teacher" }: { id?: string; q?: string; side?: Side }) {
+  const BASE: Base = side === "teacher" ? "/teach/messages" : "/messages";
   const [threads, open, details, phone] = await Promise.all([
     getThreads(),
     id ? getThread(id) : null,
@@ -64,7 +68,7 @@ export async function Inbox({ id, q = "" }: { id?: string; q?: string }) {
       <div className={`flex-wrap items-end justify-between gap-3 ${id ? "hidden lg:flex" : "flex"}`}>
         <div className="flex flex-col gap-3">
           <h1 className="t1">Messages</h1>
-          <p className="text-ink-2">Talk with your learners. Phone numbers and email addresses stay hidden until the first paid booking.</p>
+          <p className="text-ink-2">Talk with your {side === "teacher" ? "learners" : "experts"}. Phone numbers and email addresses stay hidden until the first paid booking.</p>
         </div>
         {unread ? (
           <span className="pill bg-orange-wash text-orange-ink">
@@ -137,7 +141,7 @@ export async function Inbox({ id, q = "" }: { id?: string; q?: string }) {
               ) : (
                 <>
                   <p className="font-semibold">No messages yet.</p>
-                  <p className="help">A conversation opens when a learner accepts you from a shortlist.</p>
+                  <p className="help">{side === "teacher" ? "A conversation opens when a learner accepts you from a shortlist." : "A conversation opens when you choose an expert from a shortlist, or message one from a paid booking."}</p>
                 </>
               )}
             </div>
@@ -146,27 +150,31 @@ export async function Inbox({ id, q = "" }: { id?: string; q?: string }) {
 
         {/* ------------------------------------------------------------ the open conversation */}
         {open ? (
-          <Conversation thread={open.thread} messages={open.messages} me={open.me} long={long} seen={seenLabel(details?.other_last_seen_at ?? null)} />
+          <Conversation thread={open.thread} messages={open.messages} me={open.me} long={long} seen={seenLabel(details?.other_last_seen_at ?? null)} base={BASE} />
         ) : (
           <section className={`card hidden flex-col items-center justify-center gap-2 p-8 text-center lg:flex ${PANE_LG}`} aria-label="Conversation">
             <MessagesSquare size={28} aria-hidden="true" className="text-ink-2" />
             <p className="t3">{threads.length ? "Choose a conversation" : "Nothing to read yet"}</p>
             <p className="help max-w-[320px]">
-              {threads.length ? "Pick a learner on the left to read and reply." : "When a learner accepts you from a shortlist, the conversation appears here."}
+              {threads.length
+                ? "Pick a conversation on the left to read and reply."
+                : side === "teacher"
+                  ? "When a learner accepts you from a shortlist, the conversation appears here."
+                  : "When you choose an expert from a shortlist or message one from a paid booking, the conversation appears here."}
             </p>
           </section>
         )}
 
         {/* ------------------------------------------------------------ what it is about */}
         {open ? (
-          <Details thread={open.thread} details={details} phone={phone} now={now.getTime()} />
+          <Details thread={open.thread} details={details} phone={phone} now={now.getTime()} side={side} />
         ) : (
           <aside className={`card hidden flex-col gap-3 p-5 xl:flex ${PANE_XL}`} aria-label="Conversation details">
             <h2 className="t3 flex items-center gap-2">
               <Info size={20} aria-hidden="true" />
               Conversation details
             </h2>
-            <p className="help">The learning experience, the booking and the learner show here once you open a conversation.</p>
+            <p className="help">The learning experience, the booking and the {side === "teacher" ? "learner" : "expert"} show here once you open a conversation.</p>
           </aside>
         )}
       </div>
@@ -174,7 +182,7 @@ export async function Inbox({ id, q = "" }: { id?: string; q?: string }) {
   );
 }
 
-function Conversation({ thread, messages, me, long, seen }: { thread: ThreadSummary; messages: Message[]; me: string; long: (iso: string) => string; seen: { online: boolean; text: string } | null }) {
+function Conversation({ thread, messages, me, long, seen, base: BASE }: { thread: ThreadSummary; messages: Message[]; me: string; long: (iso: string) => string; seen: { online: boolean; text: string } | null; base: Base }) {
   return (
     <section className={`card flex flex-col overflow-hidden p-0! ${PANE}`} aria-label={`Conversation with ${thread.other_name}`}>
       <MarkRead threadId={thread.id} count={messages.length} />
@@ -226,13 +234,16 @@ function Conversation({ thread, messages, me, long, seen }: { thread: ThreadSumm
   );
 }
 
-function Details({ thread, details, phone, now }: { thread: ThreadSummary; details: ThreadDetails | null; phone: string | null; now: number }) {
+function Details({ thread, details, phone, now, side }: { thread: ThreadSummary; details: ThreadDetails | null; phone: string | null; now: number; side: Side }) {
   const bookings = details?.bookings ?? [];
   const next = bookings
     .filter((b) => LIVE.includes(b.status) && new Date(b.starts_at).getTime() > now - 3 * 3600_000)
     .sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0];
   const booking = next ?? bookings[0];
   const o = details?.offering;
+  const teaching = side === "teacher";
+  // The learner opens their own view of it, or the public page when they have not booked it yet.
+  const experienceHref = !o ? null : teaching ? `/teach/offers/${o.id}` : bookings.length ? `/learning/${o.id}` : o.published ? `/offers/${o.slug}` : null;
   return (
     <aside className={`card flex flex-col gap-5 overflow-y-auto p-5 lg:col-start-2 xl:col-start-auto ${PANE_XL}`} aria-labelledby="det-h">
       <h2 id="det-h" className="t3 flex items-center gap-2">
@@ -254,8 +265,8 @@ function Details({ thread, details, phone, now }: { thread: ThreadSummary; detai
             {o ? <span className="help text-[14px]! leading-5!">{FORMATS[o.format as FormatCode]?.label ?? o.format}</span> : null}
           </span>
         </div>
-        {o ? (
-          <Link className="btn2 w-full justify-center" href={`/teach/offers/${o.id}`}>
+        {experienceHref ? (
+          <Link className="btn2 w-full justify-center" href={experienceHref}>
             View learning experience <ArrowRight size={16} aria-hidden="true" />
           </Link>
         ) : null}
@@ -269,7 +280,7 @@ function Details({ thread, details, phone, now }: { thread: ThreadSummary; detai
           </h3>
           {booking ? (
             <>
-              <Link href={`/teach/bookings/${booking.id}`} className="flex flex-col gap-2 rounded-[14px] bg-sand px-4 py-3 text-ink no-underline hover:bg-orange-wash">
+              <Link href={`${teaching ? "/teach/bookings" : "/bookings"}/${booking.id}`} className="flex flex-col gap-2 rounded-[14px] bg-sand px-4 py-3 text-ink no-underline hover:bg-orange-wash">
                 <span className="self-start">
                   <BookingPill status={booking.status} />
                 </span>
@@ -279,7 +290,7 @@ function Details({ thread, details, phone, now }: { thread: ThreadSummary; detai
                 </span>
               </Link>
               {bookings.length > 1 ? (
-                <Link className="btn3 self-start" href={`/teach/bookings?tab=all&q=${encodeURIComponent(thread.other_name)}`}>
+                <Link className="btn3 self-start" href={`${teaching ? "/teach/bookings" : "/bookings"}?tab=all&q=${encodeURIComponent(thread.other_name)}`}>
                   All <span className="mono">{bookings.length}</span> bookings <ArrowRight size={16} aria-hidden="true" />
                 </Link>
               ) : null}
@@ -289,7 +300,7 @@ function Details({ thread, details, phone, now }: { thread: ThreadSummary; detai
               <Clock size={20} aria-hidden="true" className="mt-0.5 flex-none text-orange-deep" />
               <span className="flex flex-col">
                 <span className="font-semibold">Not yet booked</span>
-                <span className="text-[14px] leading-5 text-ink-2">This learner has made an enquiry but has not booked a session.</span>
+                <span className="text-[14px] leading-5 text-ink-2">{teaching ? "This learner has made an enquiry but has not booked a session." : "You have not booked a session with this expert yet."}</span>
               </span>
             </div>
           )}
@@ -299,7 +310,7 @@ function Details({ thread, details, phone, now }: { thread: ThreadSummary; detai
       <div className="flex flex-col gap-3 border-t border-dashed border-line-2 pt-5">
         <h3 className="label flex items-center gap-2">
           <UserRound size={16} aria-hidden="true" />
-          {thread.my_role === "teacher" ? "Learner" : "With"}
+          {thread.my_role === "teacher" ? "Learner" : thread.my_role === "payer" ? "Expert" : "With"}
         </h3>
         <div className="flex items-center gap-3">
           <span className={`av ${tone(thread.other_name)}`} aria-hidden="true">

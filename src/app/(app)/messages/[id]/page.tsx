@@ -1,18 +1,18 @@
 import type { Metadata } from "next";
 import { Guarded } from "@/components/app/shell";
-import { ThreadView } from "@/components/messages/views";
+import { Inbox } from "@/components/messages/inbox";
 
 export const metadata: Metadata = { title: "Conversation" };
 
 export default function ThreadPage(props: PageProps<"/messages/[id]">) {
   return (
     <Guarded next="/messages">
-      <Thread params={props.params} />
+      <Thread params={props.params} searchParams={props.searchParams} />
     </Guarded>
   );
 }
 
-async function Thread({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  return <ThreadView id={id} base="/messages" />;
+async function Thread({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const [{ id }, { q }] = await Promise.all([params, searchParams]);
+  return <Inbox side="learner" id={id} q={typeof q === "string" ? q.slice(0, 80) : ""} />;
 }
