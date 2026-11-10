@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { RichText } from "@/components/ui/rich-text";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
@@ -16,7 +17,7 @@ import { brand } from "@/config/brand";
 export async function generateMetadata(props: PageProps<"/offers/[slug]">): Promise<Metadata> {
   const { slug } = await props.params;
   const data = await getOfferPage(slug);
-  if (!data) return { title: "Offer not found" };
+  if (!data) return { title: "Learning experience not found" };
   return { title: data.offer.title, description: data.offer.summary };
 }
 
@@ -157,9 +158,9 @@ async function Offer({ params }: { params: Promise<{ slug: string }> }) {
           {details?.description ? (
             <section className="flex flex-col gap-4" aria-labelledby="about-h">
               <h2 id="about-h" className="mk md">
-                About this <span className="hl">offer</span>
+                About this <span className="hl">experience</span>
               </h2>
-              <p className="max-w-[68ch] text-[17px] leading-[27px]">{details.description}</p>
+              <RichText text={details.description} className="max-w-[68ch] text-[17px] leading-[27px]" />
             </section>
           ) : null}
 
@@ -311,7 +312,12 @@ function BookingCard({ data }: { data: OfferPageData }) {
     }
     options.push({ id: "single", label: "One session", sub: formatDuration(offer.duration_minutes), price: offer.price_kes });
     for (const p of details?.package_prices ?? []) {
-      options.push({ id: `package-${p.sessions}`, label: `${p.sessions} sessions`, sub: `${formatKES(Math.round(p.price_kes / p.sessions))} each`, price: p.price_kes });
+      options.push({
+        id: `package-${p.sessions}`,
+        label: p.name ? `${p.name} · ${p.sessions} sessions` : `${p.sessions} sessions`,
+        sub: `${formatKES(Math.round(p.price_kes / p.sessions))} each${p.validity_weeks ? ` · use within ${p.validity_weeks} weeks` : ""}`,
+        price: p.price_kes,
+      });
     }
   }
   const cta = offer.format === "one_to_one" ? (options[0]?.id === "trial" ? "Book a trial session" : "Book a session") : offer.format === "cohort" ? "Join the programme" : "Book a seat";

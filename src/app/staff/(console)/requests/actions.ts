@@ -30,7 +30,7 @@ export async function sendShortlist(_: ConsoleState, form: FormData): Promise<Co
   const items = [];
   for (const offeringId of chosen) {
     const c = ranked.find((r) => r.offering_id === offeringId);
-    if (!c) return { error: "One of the chosen offers is no longer available. Refresh the page." };
+    if (!c) return { error: "One of the chosen learning experiences is no longer available. Refresh the page." };
     const rank = Number(form.get(`rank-${offeringId}`));
     const reason = String(form.get(`reason-${offeringId}`) ?? "").trim();
     if (!reason) return { error: `Add a one-line reason for ${c.teacher_name}; the learner sees it.` };

@@ -6,7 +6,7 @@ export default function NotFound() {
     <StatusPage
       Icon={Compass}
       title="We cannot find that page"
-      body={<p>The link may be old, or the offer may no longer be open.</p>}
+      body={<p>The link may be old, or the learning experience may no longer be open.</p>}
       action={{ href: "/explore", label: "Explore learning" }}
     />
   );

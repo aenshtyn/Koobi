@@ -19,12 +19,12 @@ export async function staffSignIn(_: StaffLoginState, form: FormData): Promise<S
   const { data: factors } = await db.auth.mfa.listFactors();
   const totp = factors?.totp?.find((f) => f.status === "verified");
   if (!totp) {
-    await db.auth.signOut();
+    await db.auth.signOut({ scope: "local" });
     return { error: "This account has no authenticator set up. Ask an admin to enrol one." };
   }
   const { error: mfaError } = await db.auth.mfa.challengeAndVerify({ factorId: totp.id, code });
   if (mfaError) {
-    await db.auth.signOut();
+    await db.auth.signOut({ scope: "local" });
     return { error: "That code did not work. Codes change every 30 seconds." };
   }
   redirect("/staff");

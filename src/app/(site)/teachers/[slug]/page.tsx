@@ -114,7 +114,7 @@ async function Teacher({ params }: { params: Promise<{ slug: string }> }) {
                 ))}
               </div>
             ) : (
-              <p className="text-ink-2">No offers are open right now.</p>
+              <p className="text-ink-2">No learning experiences are open right now.</p>
             )}
           </section>
 

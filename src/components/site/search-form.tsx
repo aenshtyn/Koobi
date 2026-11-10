@@ -9,7 +9,7 @@ export function SearchForm({ small = false, defaultValue = "", action = "/explor
         What do you want to learn?
       </label>
       <input id={id} name="q" type="search" placeholder="What do you want to learn?" defaultValue={defaultValue} />
-      <button className={`go${small ? " line" : ""}`} type="submit" aria-label="Search learning offers">
+      <button className={`go${small ? " line" : ""}`} type="submit" aria-label="Search learning experiences">
         <ArrowRight size={small ? 18 : 22} strokeWidth={2.2} aria-hidden="true" />
       </button>
     </form>

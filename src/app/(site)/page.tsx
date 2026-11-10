@@ -107,7 +107,7 @@ export default function HomePage() {
         <div className="sechead">
           <div className="flex min-w-0 flex-col gap-3.5">
             <h2 id="feat-h" className="mk">
-              Featured <span className="hl t2">learning offers</span>
+              Featured <span className="hl t2">learning experiences</span>
             </h2>
             <nav aria-label="Formats" className="flex flex-wrap gap-2">
               {PUBLIC_FORMATS.map((f) => (
@@ -118,7 +118,7 @@ export default function HomePage() {
             </nav>
           </div>
           <Link className="more" href="/explore">
-            See all learning offers
+            See all learning experiences
             <ArrowRight size={16} aria-hidden="true" />
           </Link>
         </div>
@@ -144,9 +144,9 @@ async function FeaturedOffers() {
   if (!offers.length) {
     return (
       <div className="empty">
-        <p className="h5">The first offers are in review.</p>
+        <p className="h5">The first learning experiences are in review.</p>
         <p className="text-ink-2">
-          Every teacher and expert is checked before their offers appear here. Tell us what you need and a person will match
+          Every teacher and expert is checked before their learning experiences appear here. Tell us what you need and a person will match
           you in the meantime.
         </p>
         <Link className="opill" href="/request">

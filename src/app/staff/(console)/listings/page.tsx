@@ -21,7 +21,7 @@ export default function ListingsPage(props: PageProps<"/staff/listings">) {
         <div className="flex flex-col gap-2">
           <h1 className="t1">Listing approvals</h1>
           <p className="text-ink-2">
-            Profiles and offers waiting for a decision, oldest first. Target: two working days. An offer shows on Explore only when its
+            Profiles and learning experiences waiting for a decision, oldest first. Target: two working days. A learning experience shows on Explore only when its
             teacher&rsquo;s profile is approved too.
           </p>
         </div>
@@ -140,12 +140,12 @@ async function Queue() {
                     ))}
                   </ul>
                 ) : null}
-                {canDecide ? <Decide kind="offer" id={o.id} label="offer" /> : null}
+                {canDecide ? <Decide kind="offer" id={o.id} label="learning experience" /> : null}
               </article>
             );
           })
         ) : (
-          <p className="help">No offers waiting.</p>
+          <p className="help">No learning experiences waiting.</p>
         )}
       </section>
     </>

@@ -31,11 +31,15 @@ export async function createPackage(_: PkgState, form: FormData): Promise<PkgSta
   const cadence = Number(form.get("cadence"));
   const plan = form.get("plan") === "managed" ? "managed" : "standard";
   const previous = String(form.get("previous_package_id") ?? "") || null;
-  if (![4, 8, 12, 16].includes(sessions)) return { error: "Choose how many lessons." };
+  if (!Number.isInteger(sessions) || sessions < 2 || sessions > 52) return { error: "Choose how many lessons." };
   if (!Number.isInteger(cadence) || cadence < 1 || cadence > 5) return { error: "Choose lessons per week." };
   const learner = await learnerFor(String(form.get("learner") ?? "self"));
   if ("error" in learner) return { error: learner.error };
   const db = await serverClient();
+  // Only the sizes on offer: the expert's own packages when there are any, otherwise the standard ones.
+  const { data: listed } = await db.from("offer_details").select("package_prices").eq("id", offering).maybeSingle();
+  const own = ((listed?.package_prices ?? []) as { sessions: number; name?: string }[]).filter((p) => p.name).map((p) => p.sessions);
+  if (!(own.length ? own : [4, 8, 12, 16]).includes(sessions)) return { error: "Choose one of the packages on offer." };
   const { data, error } = await db
     .from("packages")
     .insert({ learner_id: learner.id, offering_id: offering, sessions_total: sessions, cadence_per_week: cadence, plan_type: plan, is_renewal: !!previous, previous_package_id: previous })

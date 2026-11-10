@@ -62,7 +62,7 @@ export default function BecomeAnExpertPage() {
           </ul>
           <p className="help">
             The TSC Code of Conduct bars teachers in full-time TSC employment from other paid work, so every applicant declares
-            their employment. School-subject offers are agreed with the parent and run in term time.
+            their employment. School-subject learning experiences are agreed with the parent and run in term time.
           </p>
         </section>
 
@@ -102,7 +102,7 @@ export default function BecomeAnExpertPage() {
         <div className="panel escrow mt-8 items-center">
           <Seal />
           <p>
-            <b>Badges show only what passed, with the date.</b> Draft your profile and offers straight away; they go live after
+            <b>Badges show only what passed, with the date.</b> Draft your profile and learning experiences straight away; they go live after
             a person reviews them, usually within two working days.
           </p>
         </div>

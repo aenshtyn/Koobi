@@ -95,7 +95,7 @@ export async function testSignIn(_: FormState, form: FormData): Promise<FormStat
   if (!account) return { error: "Choose an account." };
   if (!password) return { error: "Enter the test password." };
   const db = await serverClient();
-  await db.auth.signOut();
+  await db.auth.signOut({ scope: "local" });
   const { error } = await db.auth.signInWithPassword({ email: account.email, password });
   if (error) {
     return {
@@ -110,7 +110,7 @@ export async function testSignIn(_: FormState, form: FormData): Promise<FormStat
 export async function signOut() {
   if (hasSupabase) {
     const db = await serverClient();
-    await db.auth.signOut();
+    await db.auth.signOut({ scope: "local" });
   }
   redirect("/");
 }

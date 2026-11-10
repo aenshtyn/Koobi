@@ -1,10 +1,9 @@
-import { Kalam } from "next/font/google";
+import { kalam } from "@/lib/fonts";
 import { SiteHeader } from "@/components/site/site-header";
 import { SiteFooter } from "@/components/site/site-footer";
 import { DevBar } from "@/components/site/dev-bar";
 
-/* Kalam is loaded only on Chora (public) pages; signed-in screens never load it (BRAND §6). */
-const kalam = Kalam({ variable: "--font-kalam", subsets: ["latin"], weight: ["400", "700"], display: "swap" });
+/* Kalam is loaded on Chora (public) pages; among signed-in screens only the expert workspace loads it, for page titles. */
 
 export default function SiteLayout({ children }: { children: React.ReactNode }) {
   return (

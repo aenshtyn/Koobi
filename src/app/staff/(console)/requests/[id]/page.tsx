@@ -99,7 +99,7 @@ async function Console({ params, searchParams }: { params: Promise<{ id: string 
           {ranked.length ? (
             <ShortlistForm requestId={r.id} candidates={ranked} canAct={canAct} />
           ) : (
-            <p className="empty">No approved offers on this track yet. Recruit for it, or close as unmatched with the reason.</p>
+            <p className="empty">No published learning experiences on this track yet. Recruit for it, or close as unmatched with the reason.</p>
           )}
           {canAct ? <UnmatchedForm requestId={r.id} /> : null}
         </section>

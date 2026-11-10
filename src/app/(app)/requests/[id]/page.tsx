@@ -132,7 +132,7 @@ async function RequestStatus({ params, searchParams }: { params: Promise<{ id: s
             ) : null}
             {accepted.offer ? (
               <Link className="btn2" href={`/offers/${accepted.offer.slug}`}>
-                See the offer and book
+                See the learning experience and book
               </Link>
             ) : null}
           </div>
@@ -143,7 +143,7 @@ async function RequestStatus({ params, searchParams }: { params: Promise<{ id: s
         <div className="panel">
           <p>
             We could not find the right person this time. We have noted what you need; <Link href="/request">post a new request</Link> or{" "}
-            <Link href="/explore">browse offers</Link>.
+            <Link href="/explore">browse learning experiences</Link>.
           </p>
         </div>
       ) : null}

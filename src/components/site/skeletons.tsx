@@ -1,6 +1,6 @@
 export function OfferGridSkeleton({ count = 4 }: { count?: number }) {
   return (
-    <div className="cards-grid" aria-busy="true" aria-label="Loading learning offers">
+    <div className="cards-grid" aria-busy="true" aria-label="Loading learning experiences">
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="skeleton h-[420px]" />
       ))}

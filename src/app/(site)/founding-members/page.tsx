@@ -22,7 +22,7 @@ export default function FoundingMembersPage() {
             What <span className="hl">founding members</span> get
           </h2>
           <ul className="flex flex-col gap-2.5">
-            <li>Your checks done before the rush, so your offers are live on the first day.</li>
+            <li>Your checks done before the rush, so your learning experiences are live on the first day.</li>
             <li>A founding member label on your profile.</li>
             <li>A say in how your category is described and priced.</li>
             <li>A monthly update on when your category opens.</li>

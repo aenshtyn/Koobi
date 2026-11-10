@@ -6,12 +6,15 @@ import { Guarded } from "@/components/app/shell";
 import { BookingPill } from "@/components/app/booking-pill";
 import { BookingSummary } from "@/components/app/booking-summary";
 import { LessonNote } from "@/components/app/lesson-note";
-import { getPolicyText } from "@/lib/data/bookings";
+import { getOpenReschedule, getPolicyText } from "@/lib/data/bookings";
 import { getMyLesson } from "@/lib/data/lessons";
 import { latestPayment } from "@/lib/payments";
 import { formatDate, formatKES, formatTime } from "@/domain/format";
 import { AUTO_CONFIRM_HOURS, DISPUTE_STATUS_LABELS, PROBLEM_TYPES, cancelPreview, problemTypesFor } from "@/domain/booking";
 import { CancelForm } from "../forms";
+import { getMySeat } from "@/lib/data/runs";
+import { RescheduleAnswer, RescheduleForm } from "@/app/teach/sessions/forms";
+import { TIME_OPTIONS, dayKey } from "@/domain/schedule";
 
 export const metadata: Metadata = { title: "Booking" };
 
@@ -20,7 +23,11 @@ const DONE: Record<string, { tone: string; text: string }> = {
   "cancelled-credit": { tone: "info", text: "Cancelled. The full amount is now credit on your account." },
   "cancelled-late": { tone: "info", text: "Cancelled. Because it was inside 24 hours, the teacher keeps the payment." },
   cancelled: { tone: "info", text: "Cancelled. Nothing was charged." },
-  reviewed: { tone: "escrow", text: "Thank you. Your review is on the offer page." },
+  reviewed: { tone: "escrow", text: "Thank you. Your review is on the learning experience page." },
+  move_asked: { tone: "info", text: "Sent. The teacher has 6 hours to accept the new time." },
+  moved: { tone: "escrow", text: "The lesson has moved to the new time." },
+  move_declined: { tone: "info", text: "The lesson stays at its time." },
+  move_withdrawn: { tone: "info", text: "Request withdrawn. The lesson stays at its time." },
 };
 
 export default function BookingPage(props: PageProps<"/bookings/[id]">) {
@@ -36,8 +43,9 @@ async function Booking({ params, searchParams }: { params: Promise<{ id: string 
   const lesson = await getMyLesson(id);
   if (!lesson) notFound();
   const { booking: b, note, disputes, review } = lesson;
-  const [p, policy] = await Promise.all([latestPayment(id), b.policy_version ? getPolicyText(b.policy_version) : null]);
+  const [p, policy, move, seat] = await Promise.all([latestPayment(id), b.policy_version ? getPolicyText(b.policy_version) : null, getOpenReschedule(id), b.kind === "seat" ? getMySeat(id) : null]);
   const now = new Date();
+  const movable = b.kind !== "seat" && ["accepted", "scheduled"].includes(b.status) && new Date(b.starts_at).getTime() - now.getTime() > 24 * 3600_000;
   const teacherFirst = b.teacher_name.split(" ")[0];
   const cancel = cancelPreview(b.status, b.starts_at, now, teacherFirst);
   const problems = problemTypesFor(b.status, b.starts_at, now);
@@ -58,6 +66,40 @@ async function Booking({ params, searchParams }: { params: Promise<{ id: string 
         <BookingPill status={b.status} />
         <h1 className="t1">{b.title}</h1>
       </div>
+      {seat ? (
+        <section className="card flex flex-col gap-3 p-5" aria-labelledby="group-h">
+          <h2 id="group-h" className="t3">
+            {seat.sessions.length > 1 ? `Your group: ${seat.sessions.length} weekly sessions` : "Your session"}
+          </h2>
+          {seat.run_status === "open" ? <p className="help">Your seat is reserved. The group is confirmed 24 hours before it starts; if too few people book, you get the full amount back as credit.</p> : null}
+          {seat.run_status === "cancelled" ? (
+            <p className="panel info">{seat.cancel_reason === "minimum_not_met" ? "Too few people booked, so this group did not run. The full amount is credit on your account." : "The teacher cancelled this group. The full amount is credit on your account."}</p>
+          ) : null}
+          <ol className="flex flex-col divide-y divide-dashed divide-line-2">
+            {seat.sessions.map((s) => (
+              <li key={s.sequence_no} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                <span>
+                  <span className="mono text-ink-2">{s.sequence_no}.</span> <span className="mono">{formatDate(s.starts_at)}</span>, <span className="mono">{formatTime(s.starts_at)}</span> – <span className="mono">{formatTime(s.ends_at)}</span>
+                </span>
+                {s.attendance ? (
+                  <span className={`pill ${s.attendance === "absent" ? "bg-error-tint text-error" : "bg-forest-tint text-forest-ink"}`}>{s.attendance === "present" ? "Present" : s.attendance === "late" ? "Late" : "Absent"}</span>
+                ) : s.status === "cancelled" ? (
+                  <span className="pill bg-sand text-ink-2">Cancelled</span>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+          {seat.meeting_link ? (
+            <a className="btn2 self-start" href={seat.meeting_link} target="_blank" rel="noreferrer">
+              <Video size={18} aria-hidden="true" />
+              Open the group’s meeting link
+            </a>
+          ) : ["scheduled", "in_progress"].includes(b.status) && seat.run_status !== "cancelled" ? (
+            <p className="help">The teacher adds the meeting link here before the first session.</p>
+          ) : null}
+        </section>
+      ) : null}
+      {move ? <RescheduleAnswer bookingId={b.id} proposalId={move.id} side="learner" mine={move.by_role === "payer"} newStart={move.new_starts_at} expiresAt={move.expires_at} /> : null}
 
       {b.status === "awaiting_payment" || b.status === "requested" ? (
         <Link className="btn self-start" href={`/checkout/${b.id}/pay`}>
@@ -140,6 +182,7 @@ async function Booking({ params, searchParams }: { params: Promise<{ id: string 
           {b.status === "no_show_learner" ? "We missed it for a serious reason" : b.status === "scheduled" ? "The teacher has not come" : "Report a problem"}
         </Link>
       ) : null}
+      {movable && !move ? <RescheduleForm bookingId={b.id} side="learner" minDate={dayKey(new Date(now.getTime() + 86_400_000))} times={TIME_OPTIONS} /> : null}
       {cancel.kind !== "closed" ? <CancelForm bookingId={b.id} preview={cancel.text} tone={cancel.kind} /> : null}
       {["cancelled", "lapsed", "no_show_teacher"].includes(b.status) && b.paid_at ? (
         <div className="flex flex-wrap gap-4">

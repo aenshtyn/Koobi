@@ -11,6 +11,9 @@ export function BookForm(props: {
   learners: Option[];
   modes: Option[];
   policy: string;
+  /** For a group: the dates to choose from, in place of times. */
+  slotLegend?: string;
+  noSlots?: string;
 }) {
   const [state, action, pending] = useActionState<BookState, FormData>(createBooking, {});
   return (
@@ -30,7 +33,7 @@ export function BookForm(props: {
         ))}
       </fieldset>
       <fieldset className="flex flex-col gap-2.5">
-        <legend className="label mb-2">Time (Nairobi)</legend>
+        <legend className="label mb-2">{props.slotLegend ?? "Time (Nairobi)"}</legend>
         {props.slots.length ? (
           <div className="flex flex-wrap gap-2">
             {props.slots.map((s, i) => (
@@ -41,7 +44,7 @@ export function BookForm(props: {
             ))}
           </div>
         ) : (
-          <p className="empty">No open times in the next two weeks. Message the teacher or request a match.</p>
+          <p className="empty">{props.noSlots ?? "No open times in the next two weeks. Message the teacher or request a match."}</p>
         )}
       </fieldset>
       {props.learners.length > 1 ? (
@@ -70,6 +73,13 @@ export function BookForm(props: {
       ) : (
         <input type="hidden" name="mode" value={props.modes[0]?.value ?? "online"} />
       )}
+      <div className="field">
+        <label className="label" htmlFor="learner_note">
+          A note for the teacher <span className="font-normal text-ink-2">(optional)</span>
+        </label>
+        <textarea id="learner_note" name="learner_note" className="input" maxLength={500} placeholder="What you want to work on, or anything the teacher should know before the first lesson." />
+        <p className="help">The teacher sees this with the booking. Do not add phone numbers or email addresses.</p>
+      </div>
       <div className="card flex flex-col gap-3 p-5">
         <h2 className="t3">Cancellation and refunds</h2>
         <p className="text-[15px] leading-[23px] text-ink-2">{props.policy}</p>

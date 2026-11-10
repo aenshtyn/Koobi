@@ -207,7 +207,7 @@ export async function ExploreResults({ searchParams, category }: { searchParams:
           <div className="flex flex-wrap items-center gap-3.5">
             <h2 id="results-h" className="mk md">
               <span className="mono text-[27px] tracking-[-0.03em]">{offers.length}</span>{" "}
-              <span className="hl t2">{offers.length === 1 ? "learning offer" : "learning offers"}</span>
+              <span className="hl t2">{offers.length === 1 ? "learning experience" : "learning experiences"}</span>
             </h2>
             {active.map((a) => (
               <Link key={a.label} className="chip sm on" href={a.href} aria-label={`Remove filter: ${a.label}`}>
@@ -228,7 +228,7 @@ export async function ExploreResults({ searchParams, category }: { searchParams:
 
         {offers.length < 3 ? (
           <div className="empty">
-            <p className="h5">{offers.length ? "Only a few offers match." : "Nothing matches yet."}</p>
+            <p className="h5">{offers.length ? "Only a few learning experiences match." : "Nothing matches yet."}</p>
             <p className="text-ink-2">
               Tell us what you need and a person will find you three teachers or experts within 24 hours. Every one of them
               is checked first.

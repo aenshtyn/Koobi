@@ -26,7 +26,7 @@ const FAQ: { group: string; items: [string, React.ReactNode][] }[] = [
   {
     group: "Teaching",
     items: [
-      ["How long do the checks take?", "Most finish within a few working days. Offers are reviewed within two working days."],
+      ["How long do the checks take?", "Most finish within a few working days. Learning experiences are reviewed within two working days."],
       ["When do I get paid?", "Weekly, to the M-Pesa number you verified, with a statement."],
       ["Why is tax deducted?", "Kenyan law requires digital marketplaces to withhold 5% on payments to sellers. We pay it to KRA for you and show it on your statement."],
     ],

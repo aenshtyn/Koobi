@@ -15,6 +15,8 @@
   --ochre: #D9A441;
   --red: #C0392B; --leaf: #1E6B3C; --amber: #F2A31B;
   --fmt-1: #FDE7C8; --fmt-2: #D8E9DD; --fmt-3: #F9D5C9; --fmt-4: #F1E8DA;
+  /* Chart series, in this fixed order: the expert's share, Koobi's fee, tax. Checked for colour-blind separation. */
+  --chart-1: #2E9463; --chart-2: #D9621F; --chart-3: #4C6FB5;
   --mpesa: #147234; --mpesa-hover: #0F5C2A; --mpesa-dot: #39B54A;
   --error: #B42318; --error-tint: #FBE3E0; --info: #2F5D6B; --info-tint: #DDEBEF;
 
@@ -385,12 +387,17 @@
   .appbar { position: sticky; top: 0; z-index: 20; background: var(--paper); border-bottom: 1.5px solid var(--ink); }
   .sidenav a { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 14px; border-radius: var(--r-btn); color: var(--ink); text-decoration: none; font-weight: 600; font-size: 16px; }
   .sidenav a:hover { background: var(--sand); color: var(--ink); }
-  .sidenav a[aria-current="page"] { background: var(--card); box-shadow: inset 0 0 0 1.5px var(--ink); }
+  .sidenav a[aria-current="page"] { background: var(--ink); color: #FFFFFF; }
+  .sidenav a[aria-current="page"]:hover { background: var(--ink); color: #FFFFFF; }
+  /* Expert workspace: the one big page title is hand-lettered with a marker stroke; everything else stays plain. */
+  .app.hand-titles .t1 { font-family: var(--font-hand); font-weight: 700; font-size: 42px; line-height: 48px; letter-spacing: 0; display: inline-block; align-self: flex-start; padding-bottom: 2px; background: linear-gradient(var(--orange), var(--orange)) left bottom / 100% 3px no-repeat; border-radius: 0 0 6px 3px; }
+  @media (max-width: 640px) { .app.hand-titles .t1 { font-size: 32px; line-height: 38px; } }
   .sidenav .sec { padding: 14px 14px 6px; font-size: 13px; font-weight: 700; color: var(--ink-2); }
   .tabbar { position: sticky; bottom: 0; z-index: 20; display: flex; justify-content: space-around; border-top: 1.5px solid var(--ink); background: var(--card); padding: 6px 6px calc(10px + env(safe-area-inset-bottom)); }
   .tabbar a { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 54px; font-size: 13px; line-height: 16px; font-weight: 600; color: var(--ink-2); text-decoration: none; }
-  .tabbar a[aria-current="page"] { color: var(--ink); }
-  .tabbar a[aria-current="page"] svg { color: var(--orange); }
+  .tabbar button { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 54px; font: inherit; font-size: 13px; line-height: 16px; font-weight: 600; color: var(--ink-2); background: transparent; border: 0; cursor: pointer; }
+  .tabbar a[aria-current="page"], .tabbar button[aria-current="page"] { color: var(--ink); }
+  .tabbar a[aria-current="page"] svg, .tabbar button[aria-current="page"] svg { color: var(--orange); }
   .reply { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 12px 16px; border: 1.8px solid var(--ink); border-radius: var(--r-input); background: var(--card); color: var(--ink); font-size: 17px; font-weight: 600; text-align: left; cursor: pointer; }
   .reply:hover { background: var(--orange-wash); }
   .reply:has(input:checked) { background: var(--ink); color: #FFFFFF; }
@@ -423,5 +430,7 @@
 
 /* Chora pages load Kalam on their own wrapper; the hand face resolves there. */
 .chora { --font-hand: var(--font-kalam), "Segoe Print", "Bradley Hand", cursive; }
+/* The expert workspace loads Kalam too, for page titles only. */
+.app.hand-titles { --font-hand: var(--font-kalam), "Segoe Print", "Bradley Hand", cursive; }
 .skeleton { background: linear-gradient(90deg, var(--sand) 0%, #F7F0E5 50%, var(--sand) 100%); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; border-radius: var(--r1); }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }

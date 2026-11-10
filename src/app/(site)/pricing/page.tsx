@@ -21,7 +21,7 @@ export default function PricingPage() {
             One price. <span className="swash">No surprises.</span>
           </>
         }
-        lead="Learners pay the price on the offer and nothing else. Teachers and experts see the fee and the tax on every statement."
+        lead="Learners pay the price shown on the learning experience and nothing else. Teachers and experts see the fee and the tax on every statement."
       />
       <div className="page-wrap grid gap-6 pb-20 lg:grid-cols-2">
         <section className="card flex flex-col gap-4 p-7" aria-labelledby="learn-h">

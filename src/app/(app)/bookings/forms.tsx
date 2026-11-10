@@ -118,7 +118,7 @@ export function ReviewForm({ bookingId }: { bookingId: string }) {
           What would you tell another learner? (optional)
         </label>
         <textarea id="body" name="body" className="input min-h-28" maxLength={2000} defaultValue={state.values?.body} />
-        <p className="help">Shown on the offer with your first name. The teacher can reply once.</p>
+        <p className="help">Shown on the learning experience with your first name. The teacher can reply once.</p>
       </div>
       <ErrorLine error={state.error} />
       <button className="btn self-start" type="submit" disabled={pending}>

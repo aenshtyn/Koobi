@@ -76,7 +76,7 @@ async function Readiness() {
       note: r.last_reconciliation ? `Last run ${formatDate(r.last_reconciliation.at)} ${formatTime(r.last_reconciliation.at)}: ${r.last_reconciliation.status}.` : "No run yet.",
     },
     { label: "Terms, privacy, cancellation and consent texts published", state: ["terms", "privacy", "cancellation_refund", "parental_consent"].every((k) => kinds.has(k)) ? "ok" : "todo", note: `Have: ${[...kinds].join(", ") || "none"}.` },
-    { label: "Teachers approved and bookable", state: (r.teachers_bookable ?? 0) > 0 ? "ok" : "todo", note: `${r.teachers_approved ?? 0} approved, ${r.teachers_bookable ?? 0} bookable (ID and payout number checked), ${r.offers_live ?? 0} offers live.` },
+    { label: "Teachers approved and bookable", state: (r.teachers_bookable ?? 0) > 0 ? "ok" : "todo", note: `${r.teachers_approved ?? 0} approved, ${r.teachers_bookable ?? 0} bookable (ID and payout number checked), ${r.offers_live ?? 0} learning experiences published.` },
     { label: "Staff in every role", state: ["concierge", "reviewer", "finance", "admin"].every((k) => (r.staff?.[k] ?? 0) > 0) && (r.staff?.finance ?? 0) + (r.staff?.admin ?? 0) >= 2 ? "ok" : "todo", note: "Payout batches need two different approvers from Finance or Admin." },
     { label: "Messages flowing", state: (r.failed_messages_7d ?? 0) === 0 && (r.dead_outbox ?? 0) === 0 ? "ok" : "todo", note: `${r.queued_messages ?? 0} queued, ${r.failed_messages_7d ?? 0} failed in 7 days, ${r.dead_outbox ?? 0} dead events.` },
   ];

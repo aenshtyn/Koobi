@@ -9,7 +9,7 @@ export function SiteHeader() {
       <Logo />
       <NavLinks className="hidden items-center gap-[30px] lg:flex" />
       <div className="flex items-center gap-3.5">
-        <Link className="iconbtn ghost" href="/explore" aria-label="Search learning offers">
+        <Link className="iconbtn ghost" href="/explore" aria-label="Search learning experiences">
           <Search size={20} aria-hidden="true" />
         </Link>
         <Link className="navlink hidden sm:inline" href="/signin">

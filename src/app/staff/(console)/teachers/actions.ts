@@ -23,7 +23,7 @@ export async function setTeacherStatus(form: FormData) {
       ? await db.rpc("reinstate_teacher", { p_teacher: id, p_reason: reason })
       : await db.from("teachers").update({ status, status_reason: reason.slice(0, 300) }).eq("id", id);
   if (error) to("/staff/teachers", "error", friendly(error.message));
-  to("/staff/teachers", "done", status === "suspended" ? "Suspended. Their offers are hidden." : status === "offboarded" ? "Offboarded." : "Reinstated.");
+  to("/staff/teachers", "done", status === "suspended" ? "Suspended. Their learning experiences are hidden." : status === "offboarded" ? "Offboarded." : "Reinstated.");
 }
 
 export async function setWaitlist(form: FormData) {
@@ -39,5 +39,5 @@ export async function setWaitlist(form: FormData) {
     .eq("teacher_id", teacher)
     .eq("track", track);
   if (error) to("/staff/waitlist", "error", friendly(error.message));
-  to("/staff/waitlist", "done", to_ === "released" ? "Released: their offers on this track are visible." : "Added to the founding-member list.");
+  to("/staff/waitlist", "done", to_ === "released" ? "Released: their learning experiences on this track are visible." : "Added to the founding-member list.");
 }

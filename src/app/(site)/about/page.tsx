@@ -35,7 +35,7 @@ export default function AboutPage() {
         <div className="prose-k">
           <h2>How we work</h2>
           <p>
-            We check every teacher and expert before their offers appear, hold payments until lessons happen, and pay teachers
+            We check every teacher and expert before their learning experiences appear, hold payments until lessons happen, and pay teachers
             weekly to M-Pesa with a statement. We never show a rating, review or credential we do not have.
           </p>
           <h2>Talk to us</h2>

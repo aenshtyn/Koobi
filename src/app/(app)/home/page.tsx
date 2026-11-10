@@ -59,7 +59,7 @@ export default function LearnerHome(props: PageProps<"/home">) {
               </div>
               <Link className="btn2 ink self-start" href="/explore">
                 <Compass size={18} aria-hidden="true" />
-                Explore every offer
+                Explore every learning experience
               </Link>
             </section>
           </div>

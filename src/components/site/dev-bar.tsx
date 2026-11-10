@@ -7,7 +7,7 @@ export function DevBar() {
   return (
     <div className="devbar" role="note">
       <div className="page-wrap flex flex-wrap items-center justify-between gap-2 py-2">
-        <span>Local preview: the people and offers shown are sample data. Add Supabase keys to show real listings.</span>
+        <span>Local preview: the people and learning experiences shown are sample data. Add Supabase keys to show real listings.</span>
         <Link href="/dev/pages">Page map</Link>
       </div>
     </div>
