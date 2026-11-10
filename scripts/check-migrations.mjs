@@ -733,6 +733,26 @@ async function checkAppListingFlow() {
     details && details.next_slots.length > 0 && details.trial_price_kes === 750
       ? pass('app flow: offer details list upcoming slots and a KES 750 trial')
       : fail('app flow: offer details', JSON.stringify(details));
+    // The expert's own booking rules (T13): notice and horizon change which slots are offered.
+    await expectError('app flow: booking rules have limits', 'authenticated', T, q(`select public.set_booking_preferences(1, 28, 0)`), /between 2 and 72/);
+    await step('the expert asks for 72 hours of notice and a 7-day horizon', () => act('authenticated', T, `select public.set_booking_preferences(72, 7, 30)`));
+    const [tight] = await act('anon', null, `select next_slots from public.offer_details where id = $1`, [offer.id]);
+    const [mine] = await act('authenticated', T, `select * from public.my_booking_preferences()`);
+    const lo = Date.now() + 72 * 3600_000 - 60_000, hi = Date.now() + 8 * 86_400_000;
+    mine?.min_notice_hours === 72 && mine.buffer_minutes === 30 && tight.next_slots.every((t) => new Date(t).getTime() >= lo && new Date(t).getTime() <= hi)
+      ? pass('app flow: slots respect the expert’s notice and horizon') : fail('app flow: booking rules', JSON.stringify({ mine, tight }));
+    await act('authenticated', T, `select public.set_booking_preferences(2, 28, 0)`);
+    const [{ next_slots: before }] = await act('anon', null, `select next_slots from public.offer_details where id = $1`, [offer.id]);
+    const firstDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Nairobi' }).format(new Date(before[before.length - 1])); // a later day, so the time of day the check runs does not matter
+    await act('authenticated', T, `insert into public.availability_windows (offering_id, kind, exception_date, starts, ends) values ($1, 'blocked', $2, '17:00', '18:00')`, [offer.id, firstDay]);
+    const [{ next_slots: part }] = await act('anon', null, `select next_slots from public.offer_details where id = $1`, [offer.id]);
+    const onDay = (list) => list.filter((t) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Nairobi' }).format(new Date(t)) === firstDay)
+      .map((t) => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Africa/Nairobi' }).format(new Date(t)));
+    await act('authenticated', T, `insert into public.availability_windows (offering_id, kind, exception_date, starts, ends) values ($1, 'extra', $2, '08:00', '09:00')`, [offer.id, firstDay]);
+    const [{ next_slots: extra }] = await act('anon', null, `select next_slots from public.offer_details where id = $1`, [offer.id]);
+    onDay(before).includes('17:00') && !onDay(part).includes('17:00') && onDay(part).length > 0 && onDay(extra).includes('08:00')
+      ? pass('app flow: a block for some hours removes only those slots, and extra hours add slots') : fail('app flow: partial block and extra hours', JSON.stringify({ before: onDay(before), part: onDay(part), extra: onDay(extra) }));
+    await act('authenticated', T, `delete from public.availability_windows where offering_id = $1 and kind in ('blocked', 'extra')`, [offer.id]);
     const prof = await act('anon', null, `select slug from public.public_teachers where slug = $1`, [teacher.slug]);
     prof.length === 1 ? pass('app flow: the profile is public') : fail('app flow: the profile is public', 'missing');
 
@@ -851,6 +871,11 @@ async function checkAppMatchingFlow() {
     const [lt] = await act('authenticated', L, `select * from public.my_threads()`);
     lt && lt.other_name === 'Tom Teacher' && lt.unread === 1
       ? pass("matching: the learner's thread list shows one unread message") : fail('matching: learner thread list', JSON.stringify(lt));
+    const [{ d: td }] = await act('authenticated', T, `select public.thread_details($1) d`, [thread]);
+    td && td.offering?.title === 'English for engineers' && td.bookings.length === 0 && td.started_at
+      ? pass('matching: thread details name the learning experience, with no bookings yet') : fail('matching: thread details', JSON.stringify(td));
+    const [{ d: tdx }] = await act('authenticated', X, `select public.thread_details($1) d`, [thread]);
+    tdx === null ? pass('matching: an outsider gets no thread details') : fail('matching: thread details leak', JSON.stringify(tdx));
 
     const [req2] = await act('authenticated', L, `insert into public.requests (category, track, subject, goal, mode)
       values ('career_professional_growth', 'adults_professional', 'Interviews', 'Practise interviews', 'online') returning id`);
@@ -937,6 +962,26 @@ async function checkAppBookingFlow() {
     const [rev] = await act('postgres', null, `select contact_revealed_at is not null r from public.message_threads where id = $1`, [thread.id]);
     const [contact] = await act('authenticated', L, `select public.thread_contact($1) c`, [thread.id]);
     rev.r && contact.c === '+254722000002' ? pass("booking: the first paid booking reveals the pair's numbers") : fail('booking: reveal', JSON.stringify({ rev, contact }));
+    const [{ d: paired }] = await act('authenticated', T, `select public.thread_details($1) d`, [thread.id]);
+    paired && paired.offering === null && paired.bookings.length >= 1 && paired.bookings.every((x) => x.status !== 'awaiting_payment')
+      ? pass("booking: thread details list the pair's paid bookings") : fail('booking: thread details', JSON.stringify(paired));
+    // Messages extras: presence, read ticks and files (after the first paid booking only).
+    await act('authenticated', L, `select public.touch_presence()`);
+    const [{ d: seenBy }] = await act('authenticated', T, `select public.thread_details($1) d`, [thread.id]);
+    seenBy?.other_last_seen_at ? pass('messages: the other side sees when a person was last on Koobi') : fail('messages: presence', JSON.stringify(seenBy));
+    const fileKey = `thread/${thread.id}/11111111-2222-4333-8444-555555555555.pdf`;
+    const [sentFile] = await act('authenticated', T, `insert into public.messages (thread_id, body, attachment_key, attachment_name) values ($1, 'Worksheet', $2, 'worksheet.pdf') returning id`, [thread.id, fileKey]);
+    await expectError('messages: a file must belong to its conversation', 'authenticated', T,
+      q(`insert into public.messages (thread_id, body, attachment_key, attachment_name) values ('${thread.id}', 'x', 'thread/00000000-0000-4000-8000-000000000000/11111111-2222-4333-8444-555555555555.pdf', 'x.pdf')`), /does not belong/);
+    await act('authenticated', L, `update public.messages set read_at = now() where thread_id = $1 and sender_user_id <> $2 and read_at is null`, [thread.id, L]);
+    const [tick] = await act('authenticated', T, `select read_at is not null r, attachment_name from public.messages where id = $1`, [sentFile.id]);
+    tick?.r && tick.attachment_name === 'worksheet.pdf' ? pass('messages: a file is sent after the first paid booking, and the sender sees it was read') : fail('messages: file and read tick', JSON.stringify(tick));
+    const [fresh] = await act('postgres', null, `insert into public.message_threads (kind) values ('pair') returning id`);
+    await act('postgres', null, `insert into public.thread_participants (thread_id, user_id, role) values ($1, $2, 'payer'), ($1, $3, 'teacher')`, [fresh.id, L, T]);
+    await act('postgres', null, `update public.message_threads set contact_revealed_at = null where id = $1`, [fresh.id]);
+    await expectError('messages: no files before the first paid booking', 'authenticated', T,
+      q(`insert into public.messages (thread_id, body, attachment_key, attachment_name) values ('${fresh.id}', 'x', 'thread/${fresh.id}/11111111-2222-4333-8444-555555555555.pdf', 'x.pdf')`), /after the first paid booking/);
+    await act('postgres', null, `delete from public.message_threads where id = $1`, [fresh.id]);
 
     await expectError('booking: an online lesson needs a Meet or Zoom link', 'authenticated', T,
       q(`select public.teacher_respond_booking('${trial.id}', true, 'https://example.com/x', null)`), /Google Meet or Zoom/);
@@ -947,6 +992,38 @@ async function checkAppBookingFlow() {
     const [sched] = await act('postgres', null, `select b.status, b.accepted_at is not null acc, (select count(*)::int from public.sessions where booking_id = b.id) s
       from public.bookings b where b.id = $1`, [trial.id]);
     sched.status === 'scheduled' && sched.acc && sched.s === 1 ? pass('booking: scheduled with one session') : fail('booking: scheduled', JSON.stringify(sched));
+
+    // Booking extras: the expert's private note, the payer's number, and moving a lesson (FR-BOOK-4).
+    await step('the teacher keeps a private note on the booking', () =>
+      act('authenticated', T, `select public.save_booking_note($1, '  Wants help with interviews.  ')`, [trial.id]));
+    const [{ d: det }] = await act('authenticated', T, `select public.teaching_booking_details($1) d`, [trial.id]);
+    det && det.internal_note === 'Wants help with interviews.' && /^\+2547\d{8}$/.test(det.payer_phone ?? '') && det.payment?.method === 'mpesa_stk' && det.reschedule === null
+      ? pass('extras: the teacher sees the note, the payer’s number and the payment') : fail('extras: details', JSON.stringify(det));
+    const [{ d: detL }] = await act('authenticated', L, `select public.teaching_booking_details($1) d`, [trial.id]);
+    detL === null ? pass('extras: the learner cannot read the teacher’s view') : fail('extras: details leak', JSON.stringify(detL));
+    await expectError('extras: only the teacher writes the private note', 'authenticated', L, q(`select public.save_booking_note('${trial.id}', 'x')`), /not your booking/);
+    const [{ starts_at: was }] = await act('postgres', null, `select starts_at from public.bookings where id = $1`, [trial.id]);
+    const moved = new Date(new Date(was).getTime() + 86_400_000).toISOString();
+    await expectError('extras: an outsider cannot move a lesson', 'authenticated', '85555555-5555-4555-8555-555555555555', q(`select public.propose_reschedule('${trial.id}', '${moved}')`), /not your booking/);
+    const [{ propose_reschedule: prop }] = await step('the teacher asks to move the lesson by a day', () =>
+      act('authenticated', T, `select public.propose_reschedule($1, $2)`, [trial.id, moved]));
+    await expectError('extras: one request at a time', 'authenticated', L, q(`select public.propose_reschedule('${trial.id}', '${moved}')`), /already waiting/);
+    await expectError('extras: the asker cannot accept their own request', 'authenticated', T, q(`select public.answer_reschedule('${prop}', true)`), /other side/);
+    const [{ d: open }] = await act('authenticated', T, `select public.teaching_booking_details($1) d`, [trial.id]);
+    const seen = await act('authenticated', L, `select id from public.booking_reschedules where booking_id = $1 and status = 'pending'`, [trial.id]);
+    open?.reschedule?.by_role === 'teacher' && seen.length === 1 ? pass('extras: both sides see the open request') : fail('extras: open request', JSON.stringify({ open, seen }));
+    await step('the learner accepts the new time', () => act('authenticated', L, `select public.answer_reschedule($1, true)`, [prop]));
+    const [mv] = await act('postgres', null, `select b.starts_at, s.starts_at ss, p.hold_status, (select count(*)::int from public.notifications n where n.template like 'reschedule_%' and n.entity_id = b.id) n
+      from public.bookings b join public.sessions s on s.booking_id = b.id join public.payments p on p.booking_id = b.id where b.id = $1`, [trial.id]);
+    new Date(mv.starts_at).toISOString() === moved && new Date(mv.ss).toISOString() === moved && mv.hold_status === 'held' && mv.n >= 2
+      ? pass('extras: the lesson and its session moved, the hold stayed, both were told') : fail('extras: accepted move', JSON.stringify(mv));
+    const [{ propose_reschedule: back }] = await act('authenticated', L, `select public.propose_reschedule($1, $2)`, [trial.id, new Date(was).toISOString()]);
+    await act('authenticated', T, `select public.answer_reschedule($1, false)`, [back]);
+    const [{ propose_reschedule: back2 }] = await act('authenticated', L, `select public.propose_reschedule($1, $2)`, [trial.id, new Date(was).toISOString()]);
+    await act('authenticated', T, `select public.answer_reschedule($1, true)`, [back2]);
+    const [rest] = await act('postgres', null, `select b.starts_at, (select count(*)::int from public.booking_reschedules r where r.booking_id = b.id and r.status = 'declined') declined from public.bookings b where b.id = $1`, [trial.id]);
+    new Date(rest.starts_at).getTime() === new Date(was).getTime() && rest.declined === 1
+      ? pass('extras: a declined request changes nothing, and the learner can move it back') : fail('extras: move back', JSON.stringify(rest));
 
     const [single] = await book('single', '4 days');
     const p2 = await pay(single.id);
@@ -985,6 +1062,95 @@ async function checkAppBookingFlow() {
       ? pass('booking: the teacher lists paid bookings only, with alias and first name') : fail('booking: my_teaching_bookings', JSON.stringify(teach));
     const [tot] = await act('postgres', null, `select coalesce(sum(case when side = 'debit' then amount_kes else -amount_kes end), 0)::int d from public.ledger_entries`);
     tot.d === 0 ? pass('booking: the whole ledger balances') : fail('booking: ledger balance', String(tot.d));
+
+    // ---- group formats: dates, seats, cut-off, attendance, release (FR-BOOK-11 to -13)
+    const [grp] = await act('postgres', null, `insert into public.offerings (teacher_id, title, summary, category, track, format, subject_text,
+        modes, meeting_tool, duration_minutes, price_seat_kes, capacity_min, capacity_max, sessions_in_run, language_codes)
+      values ($1, 'Interview skills programme', 'x', 'career_professional_growth', 'adults_professional', 'cohort', 'Interviews',
+        '{online}', 'google_meet', 60, 3000, 2, 3, 2, '{en}') returning id`, [teacher.id]);
+    await expectError('groups: dates need a seat format', 'authenticated', T, q(`select public.create_run('${offer.id}', now() + interval '5 days')`), /group classes, workshops and programmes/);
+    await expectError('groups: the first session is at least 2 days away', 'authenticated', T, q(`select public.create_run('${grp.id}', now() + interval '5 hours')`), /2 days/);
+    const [{ create_run: draftRun }] = await step('the expert adds dates before approval: they stay a draft', () =>
+      act('authenticated', T, `select public.create_run($1, now() + interval '20 days')`, [grp.id]));
+    await expectError('groups: draft dates open only once approved', 'authenticated', T, q(`select public.open_run('${draftRun}')`), /approved/);
+    await act('authenticated', T, `select public.cancel_run($1, null)`, [draftRun]);
+    await act('postgres', null, `update public.offerings set listing_status = 'pending_review' where id = $1`, [grp.id]);
+    await act('postgres', null, `update public.offerings set listing_status = 'approved' where id = $1`, [grp.id]);
+    const [{ create_run: run1 }] = await step('the expert adds dates to an approved programme', () =>
+      act('authenticated', T, `select public.create_run($1, now() + interval '3 days 3 hours')`, [grp.id]));
+    const [r1] = await act('postgres', null, `select status, (select count(*)::int from public.sessions where run_id = r.id) n, price_kes, capacity_min from public.runs r where id = $1`, [run1]);
+    const listed = await act('anon', null, `select seats_left, array_length(session_starts, 1) n from public.offer_runs where id = $1`, [run1]);
+    r1.status === 'open' && r1.n === 2 && r1.price_kes === 3000 && listed[0]?.seats_left === 3 && listed[0]?.n === 2
+      ? pass('groups: the dates are open with two weekly sessions and three seats') : fail('groups: new dates', JSON.stringify({ r1, listed }));
+    await expectError('groups: dates cannot overlap the expert’s other lessons', 'authenticated', T, q(`select public.create_run('${grp.id}', (select starts_at + interval '30 minutes' from public.runs where id = '${run1}'))`), /already have a lesson/);
+    const seat = (run) => act('authenticated', L, `insert into public.bookings (offering_id, learner_id, run_id, kind, mode, starts_at, policy_version, policy_acknowledged_at)
+      values ($1, $2, $3, 'seat', 'online', now(), 'cancellation-2026-11-v1', now()) returning id, price_kes`, [grp.id, learner.id, run]);
+    const [s1] = await step('a learner books a seat', () => seat(run1));
+    const ps1 = await pay(s1.id);
+    await act('service_role', null, `select public.record_payment_success($1, 'ps_seat_1', 0, null)`, [ps1.id]);
+    const [res] = await act('postgres', null, `select b.status, b.price_kes, r.seats_reserved,
+        (select s.starts_at = (select max(x.starts_at) from public.sessions x where x.run_id = r.id) from public.sessions s where s.booking_id = b.id) at_last
+      from public.bookings b join public.runs r on r.id = b.run_id where b.id = $1`, [s1.id]);
+    res.status === 'scheduled' && res.price_kes === 3000 && res.seats_reserved === 1 && res.at_last
+      ? pass('groups: a paid seat is reserved at once, with its record at the last session') : fail('groups: paid seat', JSON.stringify(res));
+    await expectError('groups: a seat cannot be moved', 'authenticated', L, q(`select public.propose_reschedule('${s1.id}', now() + interval '9 days')`), /seat/);
+    const creditBefore = await balance('guardian_credits', L);
+    await act('postgres', null, `update public.runs set cutoff_at = now() - interval '1 minute' where id = $1`, [run1]);
+    await step('the cut-off job runs', () => act('postgres', null, `select private.job_run_cutoff()`));
+    const [low] = await act('postgres', null, `select r.status, r.cancel_reason, b.status bs, b.cancelled_by_role by from public.runs r join public.bookings b on b.run_id = r.id where r.id = $1`, [run1]);
+    low.status === 'cancelled' && low.cancel_reason === 'minimum_not_met' && low.bs === 'cancelled' && low.by !== 'teacher' && (await balance('guardian_credits', L)) === creditBefore + 3000
+      ? pass('groups: below the minimum at the cut-off, the group is cancelled and the seat credited in full') : fail('groups: low enrolment', JSON.stringify(low));
+
+    const [{ create_run: run2 }] = await act('authenticated', T, `select public.create_run($1, now() + interval '11 days 5 hours')`, [grp.id]);
+    const [s2] = await seat(run2);
+    const ps2 = await pay(s2.id);
+    await act('service_role', null, `select public.record_payment_success($1, 'ps_seat_2', 0, null)`, [ps2.id]);
+    await step('the expert confirms early, below the minimum', () => act('authenticated', T, `select public.confirm_run($1)`, [run2]));
+    const sess = await act('postgres', null, `select id, sequence_no from public.sessions where run_id = $1 order by sequence_no`, [run2]);
+    const marks = JSON.stringify({ [s2.id]: 'present' });
+    await expectError('groups: a session is marked once it has started', 'authenticated', T, q(`select public.mark_run_session('${sess[0].id}', '${marks}', 'Introductions and a mock interview.', null, null)`), /once it has started/);
+    await act('postgres', null, `update public.runs set starts_at = now() - interval '8 days', cutoff_at = now() - interval '9 days' where id = $1`, [run2]);
+    await act('postgres', null, `update public.sessions set starts_at = now() - interval '8 days', ends_at = now() - interval '8 days' + interval '1 hour' where id = $1`, [sess[0].id]);
+    await act('postgres', null, `update public.sessions set starts_at = now() - interval '2 hours', ends_at = now() - interval '1 hour' where id = $1`, [sess[1].id]);
+    await expectError('groups: sessions are marked in order', 'authenticated', T, q(`select public.mark_run_session('${sess[1].id}', '${marks}', 'Second mock interview and feedback.', null, null)`), /earlier session first/);
+    await expectError('groups: only the expert marks a session', 'authenticated', L, q(`select public.mark_run_session('${sess[0].id}', '${marks}', 'Introductions and a mock interview.', null, null)`), /not your group/);
+    await expectError('groups: the group link must be Meet or Zoom', 'authenticated', T, q(`select public.set_run_link('${run2}', 'https://example.com/x')`), /Google Meet or Zoom/);
+    await act('authenticated', T, `select public.set_run_link($1, 'https://meet.google.com/grp-abcd-efg')`, [run2]);
+    const [{ d: linkSeen }] = await act('authenticated', L, `select public.my_seat($1) d`, [s2.id]);
+    linkSeen?.meeting_link === 'https://meet.google.com/grp-abcd-efg' ? pass('groups: a paid seat-holder sees the group’s meeting link') : fail('groups: meeting link', JSON.stringify(linkSeen));
+    await step('the expert marks the first session', () => act('authenticated', T, `select public.mark_run_session($1, $2, 'Introductions and a mock interview.', null, null)`, [sess[0].id, marks]));
+    const [mid] = await act('postgres', null, `select r.status, b.status bs, (select count(*)::int from public.attendance a where a.booking_id = b.id) att from public.runs r join public.bookings b on b.run_id = r.id where r.id = $1`, [run2]);
+    mid.status === 'in_progress' && mid.bs === 'scheduled' && mid.att === 1 ? pass('groups: after the first session the group is under way and the seat still held') : fail('groups: mid-run', JSON.stringify(mid));
+    await step('the expert marks the last session', () => act('authenticated', T, `select public.mark_run_session($1, $2, 'Second mock interview and feedback.', 'Confident answers.', 'Practise the salary question.')`, [sess[1].id, marks]));
+    const [fin] = await act('postgres', null, `select r.status, b.status bs, s.status ss, n.progress from public.runs r join public.bookings b on b.run_id = r.id
+        join public.sessions s on s.booking_id = b.id left join public.lesson_notes n on n.session_id = s.id where r.id = $1`, [run2]);
+    fin.status === 'completed' && fin.bs === 'awaiting_confirmation' && fin.ss === 'awaiting_confirmation' && /Attended 2 of 2 sessions/.test(fin.progress ?? '')
+      ? pass('groups: after the last session the group is complete and the seat waits for the learner') : fail('groups: finished', JSON.stringify(fin));
+    const [{ d: mySeat }] = await act('authenticated', L, `select public.my_seat($1) d`, [s2.id]);
+    mySeat?.sessions?.length === 2 && mySeat.sessions.every((x) => x.attendance === 'present') ? pass('groups: the seat-holder sees both sessions and their attendance') : fail('groups: my_seat', JSON.stringify(mySeat));
+    const owedBefore = await balance('teacher_payable', T);
+    await step('the learner confirms the seat', () => act('authenticated', L, `select public.confirm_lesson($1)`, [s2.id]));
+    const [rel] = await act('postgres', null, `select b.status, p.hold_status from public.bookings b join public.payments p on p.booking_id = b.id and p.status = 'succeeded' where b.id = $1`, [s2.id]);
+    const earned = (await balance('teacher_payable', T)) - owedBefore;
+    rel.status === 'confirmed' && rel.hold_status === 'released' && earned === 2280
+      ? pass('groups: the seat releases KES 2,280 of 3,000 to the expert (20% fee, 5% tax)') : fail('groups: seat release', JSON.stringify({ rel, earned }));
+    const runs = await act('authenticated', T, `select id, status, seats, sessions from public.my_runs()`);
+    const done = runs.find((x) => x.id === run2);
+    runs.length === 2 && done?.seats?.[0]?.status === 'confirmed' && done.seats[0].learner_alias === 'Bora' && done.sessions[1].attendance[s2.id] === 'present'
+      ? pass('groups: the expert lists each group with its sessions and the people in it') : fail('groups: my_runs', JSON.stringify(runs));
+
+    const [{ create_run: run3 }] = await act('authenticated', T, `select public.create_run($1, now() + interval '30 days')`, [grp.id]);
+    const [s3] = await seat(run3);
+    const ps3 = await pay(s3.id);
+    await act('service_role', null, `select public.record_payment_success($1, 'ps_seat_3', 0, null)`, [ps3.id]);
+    const creditMid = await balance('guardian_credits', L);
+    await expectError('groups: cancelling needs a reason', 'authenticated', T, q(`select public.cancel_run('${run3}', '')`), /why/);
+    await step('the expert cancels a group with a paid seat', () => act('authenticated', T, `select public.cancel_run($1, 'I am travelling that month')`, [run3]));
+    const [can] = await act('postgres', null, `select r.status, r.cancel_reason, b.status bs, b.cancelled_by_role by from public.runs r join public.bookings b on b.run_id = r.id where r.id = $1`, [run3]);
+    can.status === 'cancelled' && can.cancel_reason === 'teacher_cancelled' && can.bs === 'cancelled' && can.by === 'teacher' && (await balance('guardian_credits', L)) === creditMid + 3000
+      ? pass('groups: when the expert cancels, the seat is credited in full and it counts on their record') : fail('groups: teacher cancel', JSON.stringify(can));
+    const [tot2] = await act('postgres', null, `select coalesce(sum(case when side = 'debit' then amount_kes else -amount_kes end), 0)::int d from public.ledger_entries`);
+    tot2.d === 0 ? pass('groups: the ledger still balances') : fail('groups: ledger balance', String(tot2.d));
   } catch {
     // reported above
   }
@@ -1603,6 +1769,21 @@ async function checkAppSprint7Flow() {
         (select coalesce(sum(case when side = 'credit' then amount_kes else -amount_kes end), 0)::int from public.ledger_entries where account = 'guardian_credits' and package_id = $1) credit
         from public.packages p where p.id = $1`, [pk.id, pp.id]);
     ok('unused lessons became KES 12,600 of credit', ex === 1 && exp.status === 'expired' && exp.hold === 'credited' && exp.credit === 12600, exp);
+
+    // ---- the expert's own packages replace the standard sizes
+    await err('a package cannot cost more than its single sessions', 'authenticated', T, `insert into public.offering_packages (offering_id, name, sessions, price_kes)
+      values ('${offer.id}', 'Too dear', 4, 7201)`, /cannot cost more/);
+    await step('the expert names a 4-session package valid for 8 weeks', () => act('authenticated', T, `insert into public.offering_packages (offering_id, name, description, sessions, price_kes, validity_weeks, position)
+      values ($1, '  Starter Package ', 'Four sessions to get going.', 4, 6400, 8, 1)`, [offer.id]));
+    await err('a learner cannot add packages to someone else’s experience', 'authenticated', G, `insert into public.offering_packages (offering_id, name, sessions, price_kes)
+      values ('${offer.id}', 'Mine', 6, 100)`);
+    const [{ package_prices: shown }] = await act('anon', null, `select package_prices from public.offer_details where id = $1`, [offer.id]);
+    ok('the offer page lists the named package only', shown?.length === 1 && shown[0].name === 'Starter Package' && shown[0].sessions === 4 && shown[0].price_kes === 6400 && shown[0].validity_weeks === 8, shown);
+    const [own] = await act('authenticated', G, `insert into public.packages (learner_id, offering_id, sessions_total, cadence_per_week)
+      values ($1, $2, 4, 1) returning price_kes, ends_on - starts_on as days`, [child, offer.id]);
+    const [std] = await act('authenticated', G, `insert into public.packages (learner_id, offering_id, sessions_total, cadence_per_week)
+      values ($1, $2, 8, 2) returning price_kes`, [child, offer.id]);
+    ok('bought at the expert’s price and validity; other sizes carry no package rate', own.price_kes === 6400 && own.days === 56 && std.price_kes === 14400, { own, std });
 
     // ---- data rights, roles, parameters, metrics
     await step('the parent asks for an export', () => act('authenticated', G, `insert into public.data_requests (kind) values ('export')`));
