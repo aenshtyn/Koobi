@@ -216,7 +216,7 @@ export type ThreadSummary = {
   contact_revealed: boolean;
 };
 
-export type Message = { id: string; sender_user_id: string; body: string; redacted: boolean; created_at: string };
+export type Message = { id: string; sender_user_id: string; body: string; redacted: boolean; created_at: string; read_at?: string | null; attachment_key?: string | null; attachment_name?: string | null };
 
 export async function getThreads(): Promise<ThreadSummary[]> {
   if (!hasSupabase) return [];
@@ -226,15 +226,42 @@ export async function getThreads(): Promise<ThreadSummary[]> {
   return (data ?? []) as ThreadSummary[];
 }
 
+export type ThreadDetails = {
+  started_at: string;
+  other_last_seen_at?: string | null;
+  offering: { id: string; title: string; slug: string; format: string; published: boolean } | null;
+  bookings: { id: string; title: string; kind: string; status: string; starts_at: string }[];
+};
+
+/**
+ * What a conversation is about: the learning experience it opened for and the pair's bookings.
+ * Null when it cannot be read (not a participant, or the database function is not there yet), so
+ * the page shows the conversation without the details.
+ */
+export async function getThreadDetails(id: string): Promise<ThreadDetails | null> {
+  if (!hasSupabase || !/^[0-9a-f-]{36}$/.test(id)) return null;
+  const c = await db();
+  const { data, error } = await c.rpc("thread_details", { p_thread: id });
+  if (error || !data) return null;
+  return data as ThreadDetails;
+}
+
+/** The other side's phone number, once the pair's first paid booking has revealed it. */
+export async function getThreadContact(id: string): Promise<string | null> {
+  if (!hasSupabase || !/^[0-9a-f-]{36}$/.test(id)) return null;
+  const c = await db();
+  const { data, error } = await c.rpc("thread_contact", { p_thread: id });
+  return error ? null : ((data as string | null) ?? null);
+}
+
 export async function getThread(id: string): Promise<{ thread: ThreadSummary; messages: Message[]; me: string } | null> {
   if (!hasSupabase || !/^[0-9a-f-]{36}$/.test(id)) return null;
   const c = await db();
-  const [{ data: auth }, threads, messages] = await Promise.all([
-    c.auth.getUser(),
-    c.rpc("my_threads"),
-    c.from("messages").select("id, sender_user_id, body, redacted, created_at").eq("thread_id", id).order("created_at").limit(500),
-  ]);
+  const read = (cols: string) => c.from("messages").select(cols).eq("thread_id", id).order("created_at").limit(500);
+  const [{ data: auth }, threads, full] = await Promise.all([c.auth.getUser(), c.rpc("my_threads"), read("id, sender_user_id, body, redacted, created_at, read_at, attachment_key, attachment_name")]);
+  // A database without the file columns yet still shows the conversation.
+  const messages = full.error ? await read("id, sender_user_id, body, redacted, created_at") : full;
   const thread = ((threads.data ?? []) as ThreadSummary[]).find((t) => t.id === id);
   if (!thread || !auth.user) return null;
-  return { thread, messages: (messages.data ?? []) as Message[], me: auth.user.id };
+  return { thread, messages: (messages.data ?? []) as unknown as Message[], me: auth.user.id };
 }

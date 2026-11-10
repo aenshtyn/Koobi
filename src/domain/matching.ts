@@ -47,11 +47,11 @@ function modeOk(requestMode: string, offerModes: string[]) {
 
 export function checksFor(req: RequestForRanking, c: Candidate): Check[] {
   const checks: Check[] = [
-    { rule: "Track", ok: c.track === req.track, note: c.track === req.track ? "Same track" : `Offer is ${c.track}` },
+    { rule: "Track", ok: c.track === req.track, note: c.track === req.track ? "Same track" : `Learning experience is ${c.track}` },
     {
       rule: "Where",
       ok: modeOk(req.mode, c.modes),
-      note: modeOk(req.mode, c.modes) ? "Mode fits" : `Request wants ${req.mode}; offer is ${c.modes.join(", ")}`,
+      note: modeOk(req.mode, c.modes) ? "Mode fits" : `Request wants ${req.mode}; learning experience is ${c.modes.join(", ")}`,
     },
     {
       rule: "Times",

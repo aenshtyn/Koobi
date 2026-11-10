@@ -47,6 +47,13 @@ export type MyOffer = {
   meeting_tool: string | null;
   duration_minutes: number;
   price_hour_kes: number | null;
+  price_seat_kes: number | null;
+  capacity_min: number | null;
+  capacity_max: number | null;
+  sessions_in_run: number | null;
+  price_pkg8_kes: number | null;
+  price_pkg12_kes: number | null;
+  price_pkg16_kes: number | null;
   trial_discount_pct: number | null;
   language_codes: string[];
   listing_status: ListingState;
@@ -61,7 +68,7 @@ export type Window = { id: string; offering_id: string; weekday: number; starts:
 const TEACHER_COLS =
   "id, slug, display_name, headline, bio, languages, county_code, teacher_type, employment_status, employment_declared_at, listing_status, rejection_reason, submitted_at, approved_at, status, teacher_tracks(track)";
 const OFFER_COLS =
-  "id, slug, title, summary, description, outcomes, category, track, format, subject_text, curriculum_code, goal, modes, meeting_tool, duration_minutes, price_hour_kes, trial_discount_pct, language_codes, listing_status, rejection_reason, submitted_at, approved_at, updated_at";
+  "id, slug, title, summary, description, outcomes, category, track, format, subject_text, curriculum_code, goal, modes, meeting_tool, duration_minutes, price_hour_kes, price_seat_kes, capacity_min, capacity_max, sessions_in_run, price_pkg8_kes, price_pkg12_kes, price_pkg16_kes, trial_discount_pct, language_codes, listing_status, rejection_reason, submitted_at, approved_at, updated_at";
 
 type TeacherRow = Omit<MyTeacher, "tracks"> & { teacher_tracks: { track: string }[] | null };
 const toTeacher = ({ teacher_tracks, ...t }: TeacherRow): MyTeacher => ({ ...t, tracks: (teacher_tracks ?? []).map((x) => x.track) });
@@ -147,4 +154,36 @@ export async function getPriceBands(): Promise<Record<string, { min: number; max
   const db = await serverClient();
   const { data } = await db.rpc("price_bands");
   return (data as Record<string, { min: number; max: number }> | null) ?? {};
+}
+
+// ---------------------------------------------------------------------------
+// The expert's schedule (Availability & Schedule): one weekly schedule and one list of blocked dates,
+// stored on every one-to-one learning experience.
+
+export type ScheduleRow = { id: string; offering_id: string; kind: "weekly" | "blocked" | "extra"; weekday: number | null; starts: string | null; ends: string | null; exception_date: string | null };
+
+export async function getScheduleRows(offerIds: string[]): Promise<ScheduleRow[]> {
+  if (!offerIds.length) return [];
+  const db = await serverClient();
+  const { data, error } = await db.from("availability_windows").select("id, offering_id, kind, weekday, starts, ends, exception_date").in("offering_id", offerIds);
+  if (error) throw new Error(`availability_windows: ${error.message}`);
+  return ((data ?? []) as ScheduleRow[]).map((w) => ({ ...w, starts: w.starts?.slice(0, 5) ?? null, ends: w.ends?.slice(0, 5) ?? null }));
+}
+
+/** The expert's own booking rules; the defaults when they cannot be read (or the database is not updated yet). */
+export async function getBookingPrefs(): Promise<{ min_notice_hours: number; advance_days: number; buffer_minutes: number; saved: boolean }> {
+  const fallback = { min_notice_hours: 2, advance_days: 28, buffer_minutes: 0, saved: false };
+  if (!hasSupabase) return fallback;
+  const db = await serverClient();
+  const { data, error } = await db.rpc("my_booking_preferences").maybeSingle();
+  if (error || !data) return fallback;
+  return { ...(data as { min_notice_hours: number; advance_days: number; buffer_minutes: number }), saved: true };
+}
+
+/** The expert's own packages for one learning experience; empty when there are none (or the table is not there yet). */
+export async function getOwnPackages(offeringId: string): Promise<{ name: string; description: string | null; sessions: number; price_kes: number; validity_weeks: number | null }[]> {
+  if (!hasSupabase) return [];
+  const db = await serverClient();
+  const { data, error } = await db.from("offering_packages").select("name, description, sessions, price_kes, validity_weeks, position").eq("offering_id", offeringId).order("position");
+  return error ? [] : ((data ?? []) as { name: string; description: string | null; sessions: number; price_kes: number; validity_weeks: number | null }[]);
 }

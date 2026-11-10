@@ -63,7 +63,7 @@ export const LADDER: { tier: number; title: string; text: string; checks: { type
   {
     tier: 4,
     title: "Tested teaching",
-    text: "A subject test for school offers, or a short recorded demo lesson.",
+    text: "A subject test for school learning experiences, or a short recorded demo lesson.",
     checks: [
       { type: "subject_test", href: "/teach/offers" },
       { type: "demo_lesson", href: "/teach/verification/demo" },

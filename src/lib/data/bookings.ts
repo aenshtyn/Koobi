@@ -46,6 +46,41 @@ export async function getTeachingBookings(): Promise<TeachingBooking[]> {
   return (data ?? []) as TeachingBooking[];
 }
 
+export type Reschedule = { id: string; by_role: "teacher" | "payer"; new_starts_at: string; expires_at: string };
+
+export type TeachingBookingDetails = {
+  learner_note: string | null;
+  internal_note: string | null;
+  payer_phone: string | null;
+  for_child: boolean;
+  payment: { method: string; reference: string; paid_at: string | null; hold_status: string | null } | null;
+  by_credit: boolean;
+  reschedule: Reschedule | null;
+  moved_from: string | null;
+};
+
+/** The rest of the expert's booking view. Null when it cannot be read (or the database function is not there yet). */
+export async function getTeachingBookingDetails(id: string): Promise<TeachingBookingDetails | null> {
+  if (!hasSupabase || !/^[0-9a-f-]{36}$/.test(id)) return null;
+  const db = await serverClient();
+  const { data, error } = await db.rpc("teaching_booking_details", { p_booking: id });
+  return error || !data ? null : (data as TeachingBookingDetails);
+}
+
+/** An open request to move a booking, for either side of it. */
+export async function getOpenReschedule(bookingId: string): Promise<Reschedule | null> {
+  if (!hasSupabase || !/^[0-9a-f-]{36}$/.test(bookingId)) return null;
+  const db = await serverClient();
+  const { data, error } = await db
+    .from("booking_reschedules")
+    .select("id, by_role, new_starts_at, expires_at")
+    .eq("booking_id", bookingId)
+    .eq("status", "pending")
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
+  return error || !data ? null : (data as Reschedule);
+}
+
 export type MyPayment = {
   id: string;
   booking_id: string | null;

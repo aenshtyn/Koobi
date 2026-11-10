@@ -96,3 +96,90 @@ export async function getStatement(id: string): Promise<{ payout: PayoutRow; lin
     teacher,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Expert workspace overview (dashboard and Business page). All figures come from the ledger and
+// the expert's own bookings; nothing is estimated.
+
+export type MonthEarning = { month: string; net_kes: number };
+
+/** What the expert earned (after Koobi's fee and withholding tax) per calendar month, Nairobi time, newest last. */
+export async function getEarningsByMonth(months = 6): Promise<MonthEarning[]> {
+  const now = new Date();
+  const key = (d: Date) => new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", timeZone: "Africa/Nairobi" }).format(d).slice(0, 7);
+  const keys: string[] = [];
+  for (let i = months - 1; i >= 0; i--) keys.push(key(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 15))));
+  const empty = keys.map((month) => ({ month, net_kes: 0 }));
+  if (!hasSupabase) return empty;
+  const db = await serverClient();
+  const { data: auth } = await db.auth.getUser();
+  if (!auth.user) return empty;
+  const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - months, 1)).toISOString();
+  const { data } = await db
+    .from("ledger_entries")
+    .select("amount_kes, posted_at")
+    .eq("counterparty_user_id", auth.user.id)
+    .eq("account", "teacher_payable")
+    .eq("side", "credit")
+    .gte("posted_at", since)
+    .limit(5000);
+  const sums = new Map<string, number>(keys.map((k) => [k, 0]));
+  for (const e of (data ?? []) as { amount_kes: number; posted_at: string }[]) {
+    const k = key(new Date(e.posted_at));
+    if (sums.has(k)) sums.set(k, (sums.get(k) ?? 0) + e.amount_kes);
+  }
+  return keys.map((month) => ({ month, net_kes: sums.get(month) ?? 0 }));
+}
+
+export function monthLabel(month: string, long = false): string {
+  return new Intl.DateTimeFormat("en-GB", { month: long ? "long" : "short", timeZone: "UTC" }).format(new Date(`${month}-15T00:00:00Z`));
+}
+
+/** What was actually posted to the expert for one booking once it was released; null before that. */
+export async function getBookingMoney(bookingId: string): Promise<{ net_kes: number; withholding_kes: number } | null> {
+  if (!hasSupabase || !/^[0-9a-f-]{36}$/.test(bookingId)) return null;
+  const db = await serverClient();
+  const { data: auth } = await db.auth.getUser();
+  if (!auth.user) return null;
+  const { data } = await db.from("ledger_entries").select("account, side, amount_kes").eq("booking_id", bookingId).eq("counterparty_user_id", auth.user.id).in("account", ["teacher_payable", "withholding_payable"]);
+  const rows = (data ?? []) as { account: string; side: string; amount_kes: number }[];
+  const sum = (account: string) => rows.filter((r) => r.account === account && r.side === "credit").reduce((s, r) => s + r.amount_kes, 0);
+  const net = sum("teacher_payable");
+  return net ? { net_kes: net, withholding_kes: sum("withholding_payable") } : null;
+}
+
+
+// ---------------------------------------------------------------------------
+// Earnings & Payouts page (T22): every credit to the expert, the tax withheld per booking, and which
+// payout each credit went out on.
+
+export type MoneyHistory = {
+  credits: { id: string; amount_kes: number; posted_at: string; booking_id: string | null; commission_rate: number | null }[];
+  withholdingByBooking: Map<string, number>;
+  /** ledger entry id → the payout it is on */
+  payoutOf: Map<string, string>;
+};
+
+export async function getMoneyHistory(): Promise<MoneyHistory> {
+  const empty: MoneyHistory = { credits: [], withholdingByBooking: new Map(), payoutOf: new Map() };
+  if (!hasSupabase) return empty;
+  const db = await serverClient();
+  const { data: auth } = await db.auth.getUser();
+  if (!auth.user) return empty;
+  const { data } = await db
+    .from("ledger_entries")
+    .select("id, amount_kes, posted_at, booking_id, commission_rate, account")
+    .eq("counterparty_user_id", auth.user.id)
+    .in("account", ["teacher_payable", "withholding_payable"])
+    .eq("side", "credit")
+    .order("posted_at", { ascending: false })
+    .limit(5000);
+  const rows = (data ?? []) as (MoneyHistory["credits"][number] & { account: string })[];
+  const credits = rows.filter((r) => r.account === "teacher_payable").map((r) => ({ id: r.id, amount_kes: r.amount_kes, posted_at: r.posted_at, booking_id: r.booking_id, commission_rate: r.commission_rate === null ? null : Number(r.commission_rate) }));
+  const withholdingByBooking = new Map<string, number>();
+  for (const r of rows) if (r.account === "withholding_payable" && r.booking_id) withholdingByBooking.set(r.booking_id, (withholdingByBooking.get(r.booking_id) ?? 0) + r.amount_kes);
+  const ids = credits.slice(0, 500).map((c) => c.id);
+  const { data: lines } = ids.length ? await db.from("payout_lines").select("ledger_entry_id, payout_id").in("ledger_entry_id", ids) : { data: [] };
+  const payoutOf = new Map(((lines ?? []) as { ledger_entry_id: string; payout_id: string }[]).map((l) => [l.ledger_entry_id, l.payout_id]));
+  return { credits, withholdingByBooking, payoutOf };
+}

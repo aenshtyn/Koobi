@@ -41,7 +41,7 @@ export type OfferDetails = {
   languages: string[];
   meeting_tool: string | null;
   trial_price_kes: number | null;
-  package_prices: { sessions: number; price_kes: number }[] | null;
+  package_prices: { sessions: number; price_kes: number; name?: string; description?: string | null; validity_weeks?: number | null }[] | null;
   next_slots: string[];
 };
 

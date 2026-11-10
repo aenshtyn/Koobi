@@ -29,8 +29,8 @@ export function isBookable(state: ListingState, tierGatePassed: boolean): boolea
 export const LISTING_LABELS: Record<ListingState, string> = {
   draft: "Draft",
   pending_review: "In review",
-  approved: "Live",
-  rejected: "Changes needed",
+  approved: "Published",
+  rejected: "Needs changes",
   paused: "Paused",
   retired: "Retired",
 };
