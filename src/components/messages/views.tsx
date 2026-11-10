@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { EyeOff, MessagesSquare } from "lucide-react";
 import { getThread, getThreads } from "@/lib/data/matching";
-import { formatDayMonth, formatTime, initials } from "@/domain/format";
+import { formatDayMonth, initials } from "@/domain/format";
+import { Bubble } from "./bubble";
 import { Composer, MarkRead } from "./composer";
 
 export async function ThreadList({ base }: { base: "/messages" | "/teach/messages" }) {
@@ -55,7 +56,7 @@ export async function ThreadView({ id, base }: { id: string; base: "/messages" |
   const { thread, messages, me } = data;
   return (
     <div className="flex max-w-[760px] flex-col gap-5">
-      <MarkRead threadId={thread.id} />
+      <MarkRead threadId={thread.id} count={messages.length} />
       <div className="flex flex-col gap-1">
         <Link className="btn3 self-start" href={base}>
           All messages
@@ -75,12 +76,8 @@ export async function ThreadView({ id, base }: { id: string; base: "/messages" |
             const mine = m.sender_user_id === me;
             return (
               <li key={m.id} id={i === messages.length - 1 ? "latest" : undefined} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[85%] rounded-[16px_18px_6px_18px] px-4 py-2.5 ${mine ? "bg-ink text-white" : "card r2 py-2.5! shadow-none!"}`}>
-                  <p className="whitespace-pre-line">{m.body}</p>
-                  <p className={`mono mt-1 text-[11px] ${mine ? "text-white/70" : "text-ink-2"}`}>
-                    {formatDayMonth(m.created_at)} {formatTime(m.created_at)}
-                    {m.redacted ? " · contact details hidden" : ""}
-                  </p>
+                <div className="w-full">
+                  <Bubble m={m} mine={mine} from={thread.other_name} stamp={formatDayMonth(m.created_at)} />
                 </div>
               </li>
             );
@@ -89,7 +86,7 @@ export async function ThreadView({ id, base }: { id: string; base: "/messages" |
           <li className="help">Say hello and agree a time for the first lesson.</li>
         )}
       </ol>
-      <Composer threadId={thread.id} base={base} />
+      <Composer threadId={thread.id} base={base} canAttach={thread.contact_revealed} />
     </div>
   );
 }

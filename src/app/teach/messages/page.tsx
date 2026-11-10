@@ -1,13 +1,18 @@
 import type { Metadata } from "next";
 import { Guarded } from "@/components/app/shell";
-import { ThreadList } from "@/components/messages/views";
+import { Inbox } from "@/components/messages/inbox";
 
 export const metadata: Metadata = { title: "Messages" };
 
-export default function TeachMessagesPage() {
+export default function TeachMessagesPage(props: PageProps<"/teach/messages">) {
   return (
     <Guarded next="/teach/messages">
-      <ThreadList base="/teach/messages" />
+      <List searchParams={props.searchParams} />
     </Guarded>
   );
+}
+
+async function List({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const { q } = await searchParams;
+  return <Inbox q={typeof q === "string" ? q.slice(0, 80) : ""} />;
 }
