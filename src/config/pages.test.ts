@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { PAGES, findPage, pagesIn } from "./pages";
 
 describe("page registry", () => {
-  it("lists 114 screens in the agreed split (109 planned, plus launch readiness and the expert Business, Account, Tips and Group details pages)", () => {
-    expect(PAGES).toHaveLength(114);
+  it("lists 122 screens in the agreed split (109 planned, plus launch readiness, the expert Business, Account, Tips and Group details pages, and the eight learner workspace pages)", () => {
+    expect(PAGES).toHaveLength(122);
     expect(pagesIn("public")).toHaveLength(16);
     expect(pagesIn("auth")).toHaveLength(3);
-    expect(pagesIn("learner")).toHaveLength(26);
+    expect(pagesIn("learner")).toHaveLength(34);
     expect(pagesIn("teacher")).toHaveLength(32);
     expect(pagesIn("staff")).toHaveLength(27);
     expect(pagesIn("system")).toHaveLength(10);

@@ -5,9 +5,9 @@ import { PASSWORD, signInAs } from "./helpers";
 test.describe("roles", () => {
   test.skip(!PASSWORD, "set KOOBI_TEST_PASSWORD");
 
-  test("learner: lessons, credits, notifications, settings", async ({ page }) => {
+  test("learner: every workspace page opens", async ({ page }) => {
     await signInAs(page, "learner");
-    for (const path of ["/home", "/sessions", "/account/credits", "/notifications", "/account/settings"]) {
+    for (const path of ["/home", "/learning", "/bookings", "/sessions", "/messages", "/following", "/payments", "/reviews", "/account/profile", "/account/credits", "/notifications", "/account/settings"]) {
       await page.goto(path);
       await expect(page.locator("h1").first()).toBeVisible();
     }

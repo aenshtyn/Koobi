@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { Bell } from "lucide-react";
+import { Bell, Search } from "lucide-react";
 import { Logo } from "@/components/ui/trust";
 import { getSessionUser, requireUser, type Role } from "@/lib/auth";
 import { SideNav, TabBar, type NavItem } from "./nav";
@@ -17,17 +17,25 @@ type Props = {
   className?: string;
   /** Shown under the side navigation on wide screens. */
   sideExtra?: React.ReactNode;
+  /** A search box in the top bar on wide screens (learner workspace): where it sends, and its hint. */
+  search?: { action: string; placeholder: string };
   children: React.ReactNode;
 };
 
 /** Signed-in shell, Wazi rules: no hand lettering, 17px body, sticky bars, phone tab bar. */
-export function AppShell({ areaLabel, root, nav, className, sideExtra, children }: Props) {
+export function AppShell({ areaLabel, root, nav, className, sideExtra, search, children }: Props) {
   return (
     <div className={`app flex min-h-dvh flex-col${className ? ` ${className}` : ""}`}>
       <header className="appbar">
         <div className="mx-auto flex max-w-[1280px] items-center gap-4 px-4 py-3 sm:px-6">
           <Logo small href={root} />
           <span className="hidden border-l-[1.5px] border-line-2 pl-4 text-[15px] font-semibold text-ink-2 sm:inline">{areaLabel}</span>
+          {search ? (
+            <form action={search.action} role="search" className="relative ml-2 hidden w-full max-w-[340px] md:block">
+              <Search size={18} aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-ink-2" />
+              <input name="q" type="search" className="input min-h-[44px]! rounded-full! py-2! pl-10! text-[15px]!" placeholder={search.placeholder} aria-label={search.placeholder} />
+            </form>
+          ) : null}
           <span className="flex-1" />
           <Suspense fallback={null}>
             <UserChip root={root} />
@@ -121,8 +129,9 @@ async function UserChip({ root }: { root: string }) {
                   { href: "/home", label: "Switch to learning" },
                 ]
               : [
-                  { href: "/account/settings", label: "Account settings" },
-                  { href: "/account/receipts", label: "Receipts" },
+                  { href: "/account/profile", label: "My Profile" },
+                  { href: "/payments", label: "Payments & Transactions" },
+                  { href: "/account/settings", label: "Settings" },
                   { href: isTeacher ? "/teach" : "/teach/apply", label: isTeacher ? "Switch to teaching" : "Teach on Koobi" },
                 ]
         }

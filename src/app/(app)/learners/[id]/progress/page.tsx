@@ -24,8 +24,8 @@ async function Progress({ params }: { params: Promise<{ id: string }> }) {
   if (!p) notFound();
   return (
     <div className="flex max-w-[680px] flex-col gap-6">
-      <Link className="btn3 self-start" href="/sessions">
-        All lessons
+      <Link className="btn3 self-start" href="/learning">
+        My Learning
       </Link>
       <h1 className="t1">{p.alias}’s lesson notes</h1>
       {p.items.length ? (

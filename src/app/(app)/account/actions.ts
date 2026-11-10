@@ -65,17 +65,29 @@ export async function submitIdCheck(_: AState, form: FormData): Promise<AState> 
   redirect("/account/identity?done=sent");
 }
 
+const CATEGORIES = ["career_professional_growth", "business_entrepreneurship", "school_academic", "digital_practical_skills"];
+const FORMATS = ["one_to_one", "small_group", "workshop", "cohort"];
+const LANGUAGES = ["en", "sw"];
+const picked = (form: FormData, key: string, allowed: string[]) => form.getAll(key).map(String).filter((v) => allowed.includes(v));
+
+/** My Profile: name, country, message language and, once the database has them, learning preferences. */
 export async function saveProfile(_: AState, form: FormData): Promise<AState> {
   const name = String(form.get("display_name") ?? "").trim();
   if (name.length < 2 || name.length > 80) return { error: "Enter your name (2 to 80 letters)." };
+  const country = String(form.get("country_code") ?? "KE").toUpperCase();
+  if (!/^[A-Z]{2}$/.test(country)) return { error: "Choose your country." };
   const db = await serverClient();
   const { data: auth } = await db.auth.getUser();
   if (!auth.user) return { error: "Sign in again." };
   const locale = form.get("locale") === "sw" ? "sw" : "en";
-  const { error } = await db.from("profiles").update({ display_name: name, locale }).eq("id", auth.user.id);
+  const prefs =
+    form.get("has_prefs") === "1"
+      ? { interest_categories: picked(form, "categories", CATEGORIES), preferred_formats: picked(form, "formats", FORMATS), preferred_languages: picked(form, "languages", LANGUAGES) }
+      : {};
+  const { error } = await db.from("profiles").update({ display_name: name, country_code: country, locale, ...prefs }).eq("id", auth.user.id);
   if (error) return { error: friendly(error.message) };
-  revalidatePath("/account/settings");
-  redirect("/account/settings?done=profile");
+  revalidatePath("/account/profile");
+  redirect("/account/profile?done=saved");
 }
 
 export async function savePrefs(_: AState, form: FormData): Promise<AState> {
@@ -90,6 +102,8 @@ export async function savePrefs(_: AState, form: FormData): Promise<AState> {
     sms_enabled: form.get("sms_enabled") === "on",
     email_enabled: form.get("email_enabled") === "on",
     marketing_opt_in: form.get("marketing_opt_in") === "on",
+    // Sent only when the form showed the choice (the database has following).
+    ...(form.get("has_follow_updates") === "1" ? { follow_updates: form.get("follow_updates") === "on" } : {}),
   };
   const { error } = await db.from("notification_preferences").upsert(row, { onConflict: "user_id" });
   if (error) return { error: friendly(error.message) };

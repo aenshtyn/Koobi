@@ -47,8 +47,8 @@ async function Package({ params }: { params: Promise<{ id: string }> }) {
   const plan = pkg.plan_type === "managed" ? "Monthly plan" : "Package";
   return (
     <div className="flex max-w-[680px] flex-col gap-6">
-      <Link className="btn3 self-start" href="/sessions">
-        My lessons
+      <Link className="btn3 self-start" href="/learning">
+        My Learning
       </Link>
       <div className="flex flex-col gap-2">
         <span className="pill self-start">{STATUS[pkg.status] ?? pkg.status}</span>

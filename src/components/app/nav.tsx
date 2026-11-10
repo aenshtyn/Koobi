@@ -6,7 +6,7 @@ import {
   Bell,
   BadgeCheck, Banknote, BookOpen, CalendarDays, ClipboardCheck, ClipboardList, Compass, FileText, Gavel, House, Inbox,
   Layers, ListChecks, MessagesSquare, Receipt, RefreshCw, Scale, Settings, ShieldCheck, SlidersHorizontal, Tags, UserRound,
-  Users, Wallet, BarChart3, ScrollText, Clock, Globe, Star, Ellipsis, X,
+  Users, Wallet, BarChart3, ScrollText, Clock, Globe, Star, Ellipsis, X, CreditCard, UserRoundCheck,
 } from "lucide-react";
 
 const ICONS = {
@@ -14,7 +14,7 @@ const ICONS = {
   users: Users, layers: Layers, inbox: Inbox, wallet: Wallet, badge: BadgeCheck, settings: Settings, book: BookOpen,
   clock: Clock, check: ClipboardCheck, list: ClipboardList, listchecks: ListChecks, gavel: Gavel, banknote: Banknote,
   refresh: RefreshCw, scale: Scale, file: FileText, tags: Tags, sliders: SlidersHorizontal, shield: ShieldCheck,
-  chart: BarChart3, scroll: ScrollText, bell: Bell, globe: Globe, star: Star,
+  chart: BarChart3, scroll: ScrollText, bell: Bell, globe: Globe, star: Star, card: CreditCard, follow: UserRoundCheck,
 } as const;
 export type IconName = keyof typeof ICONS;
 export type NavItem = {

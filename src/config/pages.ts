@@ -58,7 +58,7 @@ export const PAGES: PageSpec[] = [
   p("A3", "auth", "Phone OTP", "Welcome and role", "/welcome", 1, "Learning for me, for my child, or teaching.", B),
 
   // 3 · Learner and guardian
-  p("L1", "learner", "Book", "Home", "/home", 2, "Request first, then learning experiences and upcoming lessons.", B),
+  p("L1", "learner", "Book", "Home", "/home", 2, "Upcoming bookings, learning progress, quick links and suggestions.", B),
   p("L2", "learner", "Book", "Request status and shortlist", "/requests/[id]", 3, "A person is on it; then three teachers to choose from.", B),
   p("L3", "learner", "Book", "Pick a slot", "/book/[slug]", 4, "Trial, single session, package or seat; time; cancellation terms.", B),
   p("L4", "learner", "Book", "Learner and location", null, 4, "Part of Pick a slot: who is learning and where.", B),
@@ -68,7 +68,11 @@ export const PAGES: PageSpec[] = [
   p("L8", "learner", "Book", "Booking confirmed", "/bookings/[id]/confirmed", 4, "Receipt and the teacher's response window.", B),
   p("L9", "learner", "Book", "Packages and renewal", "/packages/new", 7, "8, 12 or 16 sessions at a package price.", B),
   p("L10", "learner", "Book", "Managed plan", "/packages/[id]/managed-plan", 7, "In-person pairs after the first month.", B),
-  p("L11", "learner", "Learn", "My sessions", "/sessions", 5, "Upcoming and past lessons.", B),
+  p("L11", "learner", "Learn", "My Schedule", "/sessions", 5, "Every lesson and group session by date: a week at a time, or as a list.", B),
+  p("L27", "learner", "Learn", "My Learning", "/learning", 8, "One card per learning experience, with progress and the next session.", B),
+  p("L28", "learner", "Learn", "Learning experience details", "/learning/[id]", 8, "The expert, the next session, progress, session history and lesson notes.", B),
+  p("L29", "learner", "Learn", "My Bookings", "/bookings", 8, "Bookings by status and format; join, reschedule, cancel and message from the list.", B),
+  p("L33", "learner", "Learn", "My Reviews", "/reviews", 8, "Completed bookings still to review, and reviews already posted.", B),
   p("L12", "learner", "Learn", "Booking detail", "/bookings/[id]", 5, "Status, reschedule and cancel with the rule applied.", B),
   p("L13", "learner", "Learn", "Did it happen?", "/bookings/[id]/confirm", 5, "One tap releases payment to the teacher.", B),
   p("L14", "learner", "Learn", "Lesson notes and progress", "/learners/[id]/progress", 5, "A note after every lesson, as a timeline.", B),
@@ -81,9 +85,13 @@ export const PAGES: PageSpec[] = [
   p("L21", "learner", "Account", "Guardian ID check", "/account/identity", 7, "Required before in-person lessons for a child.", B),
   p("L22", "learner", "Account", "Messages", "/messages", 3, "Masked threads with teachers.", B),
   p("L23", "learner", "Account", "Thread", "/messages/[id]", 3, "One conversation; contacts stay masked until the first paid booking.", B),
-  p("L24", "learner", "Account", "Receipts", "/account/receipts", 4, "Every payment and refund.", B),
+  p("L24", "learner", "Account", "Receipts", "/account/receipts", 4, "Old address; opens Payments & Transactions.", B),
+  p("L31", "learner", "Account", "Payments & Transactions", "/payments", 8, "Every payment with its state, refunds and credit.", B),
+  p("L32", "learner", "Account", "Receipt", "/payments/[id]", 8, "The receipt for one successful payment, to print or save.", B),
+  p("L30", "learner", "Account", "Following", "/following", 8, "Experts the learner follows and what is new from each.", B),
+  p("L34", "learner", "Account", "My Profile", "/account/profile", 8, "Name, country, contact details and learning preferences.", B),
   p("L25", "learner", "Account", "Credits", "/account/credits", 5, "Balance from cancellations; pay with it or send it back to M-Pesa.", B),
-  p("L26", "learner", "Account", "Settings", "/account/settings", 7, "Name, phone, language, notifications, data requests.", B),
+  p("L26", "learner", "Account", "Settings", "/account/settings", 7, "Notifications and data requests.", B),
 
   // 4 · Teacher and expert
   p("T1", "teacher", "Join", "Apply", "/teach/apply", 2, "Profile draft, categories, employment declaration.", B),

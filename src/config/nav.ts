@@ -1,15 +1,21 @@
 import type { NavItem } from "@/components/app/nav";
 
+/* Learner workspace (redesign of November 2026). Receipts and credits sit inside Payments &
+   Transactions, lesson notes and packages inside My Learning, and notifications on the bell. Explore
+   stays in the list so a phone, which has no side card or search box, can still reach it. */
 export const LEARNER_NAV: NavItem[] = [
   { href: "/home", label: "Home", icon: "house", tab: true },
-  { href: "/explore", label: "Explore", icon: "compass", tab: true },
-  { href: "/sessions", label: "Sessions", icon: "calendar", tab: true },
-  { href: "/messages", label: "Messages", icon: "messages", tab: true },
-  { href: "/notifications", label: "Notifications", icon: "bell", section: "Account" },
-  { href: "/account/learners", label: "Children", icon: "users", section: "Account" },
-  { href: "/account/credits", label: "Credits", icon: "wallet", section: "Account" },
-  { href: "/account/receipts", label: "Receipts", icon: "receipt", section: "Account" },
-  { href: "/account/settings", label: "Settings", icon: "settings", section: "Account", tab: true },
+  { href: "/explore", label: "Explore", icon: "compass" },
+  { href: "/learning", label: "My Learning", tabLabel: "Learning", icon: "book", section: "Learning", tab: true, also: ["/learners", "/packages"] },
+  { href: "/bookings", label: "My Bookings", tabLabel: "Bookings", icon: "calendar", section: "Learning", tab: true, also: ["/disputes"] },
+  { href: "/sessions", label: "My Schedule", tabLabel: "Schedule", icon: "clock", section: "Learning" },
+  { href: "/messages", label: "Messages", icon: "messages", section: "Communication", tab: true },
+  { href: "/following", label: "Following", icon: "follow", section: "Communication" },
+  { href: "/payments", label: "Payments & Transactions", tabLabel: "Payments", icon: "card", section: "Financial", also: ["/account/receipts", "/account/credits"] },
+  { href: "/reviews", label: "My Reviews", icon: "star", section: "Feedback" },
+  { href: "/account/profile", label: "My Profile", icon: "user", section: "Account" },
+  { href: "/account/learners", label: "Children", icon: "users", section: "Account", also: ["/account/identity"] },
+  { href: "/account/settings", label: "Settings", icon: "settings", section: "Account" },
 ];
 
 /* Expert workspace (redesign of November 2026). Statements sit inside Earnings & Payouts, the waitlist

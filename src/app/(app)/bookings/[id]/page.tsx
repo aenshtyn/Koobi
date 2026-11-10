@@ -54,8 +54,8 @@ async function Booking({ params, searchParams }: { params: Promise<{ id: string 
 
   return (
     <div className="flex max-w-[620px] flex-col gap-6">
-      <Link className="btn3 self-start" href="/sessions">
-        All lessons
+      <Link className="btn3 self-start" href="/bookings">
+        My Bookings
       </Link>
       {done ? (
         <p className={`panel ${done.tone}`} role="status">
