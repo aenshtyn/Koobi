@@ -12,6 +12,7 @@
     "db:check": "node scripts/check-migrations.mjs",
     "check": "npm run lint && npm run typecheck && npm test && npm run db:check",
     "test-users": "node --env-file=.env.local scripts/test-users.mjs",
+    "sample-data": "node --env-file=.env.local scripts/sample-data.mjs",
     "e2e": "playwright test"
   },
   "dependencies": {
