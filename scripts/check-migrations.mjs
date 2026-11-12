@@ -8,6 +8,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { checkExpertOnboarding } from './check-expert-onboarding.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const migrationsDir = path.join(root, 'supabase', 'migrations');
@@ -153,6 +154,13 @@ async function main() {
 
   await db.exec('begin');
   try {
+    await checkExpertOnboarding({ act, expectError, pass, fail, q });
+  } finally {
+    await db.exec('rollback');
+  }
+
+  await db.exec('begin');
+  try {
     await checkAccountsAndGuestRequests();
   } finally {
     await db.exec('rollback');
@@ -261,7 +269,7 @@ async function checkStatic() {
   const contract = {
     explore_offers: 'id uuid, slug text, title text, summary text, category text, track text, format text, price_kes int4, price_basis text, duration_minutes int4, sessions_in_run int4, modes _text, county text, estate text, next_start timestamptz, seats_left int4, rating_avg numeric, review_count int4, teacher_slug text, teacher_name text, teacher_headline text, teacher_photo_url text, badges jsonb, published_at timestamptz, rank_tier int4',
     offer_details: 'id uuid, slug text, description text, outcomes _text, languages _text, meeting_tool text, trial_price_kes int4, package_prices jsonb, next_slots _timestamptz',
-    public_teachers: 'slug text, display_name text, headline text, bio text, photo_url text, languages _text, county text, badges jsonb, response_time_minutes int4, review_count int4, rating_avg numeric, member_since date',
+    public_teachers: 'slug text, display_name text, headline text, bio text, photo_url text, languages _text, county text, badges jsonb, response_time_minutes int4, review_count int4, rating_avg numeric, member_since date, country_code text, experience_band text, achievements text, primary_category text, specialisations _text, audiences _text, formats_offered _text, learner_outcomes text, verified bool, has_video bool, credentials jsonb, weekly_hours jsonb',
     public_reviews: 'offering_id uuid, teacher_slug text, rating int4, body text, created_at timestamptz, reviewer_first_name text',
   };
   for (const [view, expected] of Object.entries(contract)) {
@@ -726,7 +734,8 @@ async function checkAppListingFlow() {
       act('authenticated', T, `insert into public.availability_windows (offering_id, kind, weekday, starts, ends)
         values ($1, 'weekly', 1, '17:00', '20:00'), ($1, 'weekly', 4, '17:00', '20:00')`, [offer.id]));
     await step('the teacher sends profile and offer for review', async () => {
-      await act('authenticated', T, `update public.teachers set listing_status = 'pending_review' where id = $1`, [teacher.id]);
+      // Since the expert onboarding migration a profile is published through publish_profile(), not by the expert's own update.
+      await act('postgres', null, `update public.teachers set listing_status = 'pending_review' where id = $1`, [teacher.id]);
       await act('authenticated', T, `update public.offerings set listing_status = 'pending_review' where id = $1`, [offer.id]);
     });
     await expectError('app flow: the teacher cannot approve their own offer', 'authenticated', T,
