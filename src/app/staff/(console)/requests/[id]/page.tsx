@@ -8,6 +8,7 @@ import { getConsole } from "@/lib/data/matching";
 import { rankCandidates, slaFor } from "@/domain/matching";
 import { categoryByCode, TRACKS, type TrackCode } from "@/domain/taxonomy";
 import { formatDate, formatKES, formatTime } from "@/domain/format";
+import { DAYS, TIME_LABELS, formatChoiceLabel } from "@/domain/request-form";
 import { ShortlistForm, UnmatchedForm } from "../console-forms";
 
 export const metadata: Metadata = { title: "Matching console", robots: { index: false } };
@@ -41,6 +42,15 @@ async function Console({ params, searchParams }: { params: Promise<{ id: string 
           <span className="seal" aria-hidden="true" />
           <p>
             <b>Shortlist sent.</b> The learner can now choose; the request waits under “Shortlist sent”.
+            {sp.mail === "sent" ? " We emailed them a link to create their account and see it." : ""}
+          </p>
+        </div>
+      ) : null}
+      {sp.mail === "failed" ? (
+        <div className="panel error" role="alert">
+          <p>
+            <b>The email to this person did not go out.</b> They have no account, so nothing else tells them. Write to them yourself at the
+            address below and ask them to create an account with it.
           </p>
         </div>
       ) : null}
@@ -61,10 +71,25 @@ async function Console({ params, searchParams }: { params: Promise<{ id: string 
           <div><dt className="help">Category</dt><dd>{categoryByCode(r.category)?.label}</dd></div>
           <div><dt className="help">Track</dt><dd>{TRACKS[r.track as TrackCode]?.label ?? r.track}</dd></div>
           <div><dt className="help">Where</dt><dd>{r.mode.replace("_", " ")}{r.county ? `, ${r.county}` : ""}</dd></div>
+          <div><dt className="help">Type of learning</dt><dd>{formatChoiceLabel(r.format_pref)}</dd></div>
           <div><dt className="help">Budget</dt><dd className="mono">{r.budget_max_kes ? `${formatKES(r.budget_max_kes)} / session` : "Not given"}</dd></div>
           <div><dt className="help">When</dt><dd>{r.schedule_notes ?? "—"}</dd></div>
           <div><dt className="help">Sent</dt><dd className="mono">{formatDate(r.submitted_at)} {formatTime(r.submitted_at)}</dd></div>
+          {r.preferred_times?.length ? <div><dt className="help">Preferred time</dt><dd>{r.preferred_times.map((t) => TIME_LABELS[t] ?? t).join(", ")}</dd></div> : null}
+          {r.preferred_days?.length ? <div><dt className="help">Preferred days</dt><dd>{DAYS.filter(([v]) => r.preferred_days?.includes(v)).map(([, l]) => l).join(", ")}</dd></div> : null}
         </dl>
+        {r.contact_email ? (
+          <div className="panel flex-col! gap-1!">
+            <p>
+              <b>{r.requester_id ? "Contact details given with the request" : "Sent without an account"}</b>
+              {r.requester_id ? null : " · it links to their account when they sign up or sign in with this email. Until then, reach them here."}
+            </p>
+            <p>
+              {r.contact_name} · <a className="mono break-all" href={`mailto:${r.contact_email}`}>{r.contact_email}</a>
+              {r.contact_phone ? <> · <a className="mono" href={`tel:${r.contact_phone}`}>{r.contact_phone}</a></> : null}
+            </p>
+          </div>
+        ) : null}
       </section>
 
       {view.matches.filter((m) => m.status !== "proposed").length ? (

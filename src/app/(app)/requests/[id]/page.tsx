@@ -10,6 +10,8 @@ import { getMyRequest } from "@/lib/data/matching";
 import { categoryByCode, FORMATS } from "@/domain/taxonomy";
 import { formatDate, formatKES, formatTime, initials } from "@/domain/format";
 import { slaFor } from "@/domain/matching";
+import { hasSupabase } from "@/lib/supabase/config";
+import { serverClient } from "@/lib/supabase/server";
 import { AcceptButton, DeclineForm } from "../shortlist-forms";
 
 export const metadata: Metadata = { title: "Your request" };
@@ -24,7 +26,12 @@ export default function RequestStatusPage(props: PageProps<"/requests/[id]">) {
 
 async function RequestStatus({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
-  const view = await getMyRequest(id);
+  let view = await getMyRequest(id);
+  if (!view && hasSupabase) {
+    // Sent as a guest with this person's email: link it now and look again.
+    const { data: linked } = await (await serverClient()).rpc("claim_guest_requests");
+    if (linked) view = await getMyRequest(id);
+  }
   if (!view) notFound();
   const { request: r, matches, threadId } = view;
   const sla = slaFor(r.status, r.submitted_at, new Date());

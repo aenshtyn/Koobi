@@ -75,7 +75,10 @@ async function Queue({ searchParams }: { searchParams: Promise<Record<string, st
                       <Link className="font-semibold" href={`/staff/requests/${r.id}`}>
                         {r.subject}
                       </Link>
-                      <p className="help line-clamp-1">{r.goal}</p>
+                      <p className="help line-clamp-1">
+                        {r.requester_id ? null : <span className="pill mr-1.5">No account yet</span>}
+                        {r.goal}
+                      </p>
                     </td>
                     <td className="text-ink-2">{categoryByCode(r.category)?.short}</td>
                     <td className="mono">{r.budget_max_kes ? formatKES(r.budget_max_kes) : "—"}</td>

@@ -5,6 +5,9 @@ import { hasSupabase } from "@/lib/supabase/config";
 import { serverClient } from "@/lib/supabase/server";
 import { getConsole } from "@/lib/data/matching";
 import { rankCandidates, snapshot } from "@/domain/matching";
+import { brand } from "@/config/brand";
+import { sendEmail } from "@/integrations/notify";
+import { appOrigin } from "@/lib/account";
 
 export type ConsoleState = { error?: string };
 
@@ -44,7 +47,34 @@ export async function sendShortlist(_: ConsoleState, form: FormData): Promise<Co
   const db = await serverClient();
   const { error } = await db.rpc("send_shortlist", { p_request: id, p_minutes: minutes, p_note: String(form.get("note") ?? ""), p_items: items });
   if (error) return { error: error.message };
-  redirect(`/staff/requests/${id}?sent=1`);
+
+  // A request sent without an account has nobody to notify in the app, so the person gets an email
+  // with the way in. Their request links to the account they create with this address.
+  let mail = "";
+  const r = view.request;
+  if (!r.requester_id && r.contact_email) {
+    const first = (r.contact_name ?? "").split(" ")[0] || "there";
+    const link = `${await appOrigin()}/signup?next=${encodeURIComponent(`/requests/${id}`)}`;
+    const res = await sendEmail(
+      r.contact_email,
+      `Your ${brand.name} recommendations are ready`,
+      [
+        `Hello ${first},`,
+        "",
+        `You asked ${brand.name} for help with: "${r.subject}".`,
+        `We have chosen ${items.length === 1 ? "one teacher or expert" : `${items.length} teachers and experts`} for you, each with the checks they passed.`,
+        "",
+        `See them and choose: ${link}`,
+        "Create your account with this email address and your request will be waiting. If you already have an account, sign in instead.",
+        "",
+        "You only pay when you book.",
+        "",
+        `${brand.name} · ${brand.supportEmail}`,
+      ].join("\n"),
+    ).catch(() => ({ ok: false as const }));
+    mail = res.ok ? "&mail=sent" : "&mail=failed";
+  }
+  redirect(`/staff/requests/${id}?sent=1${mail}`);
 }
 
 export async function markUnmatched(_: ConsoleState, form: FormData): Promise<ConsoleState> {

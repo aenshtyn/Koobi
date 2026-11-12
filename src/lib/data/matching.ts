@@ -11,7 +11,8 @@ import type { Candidate, RequestForRanking } from "@/domain/matching";
 
 export type RequestRow = RequestForRanking & {
   id: string;
-  requester_id: string;
+  /** Null while a request sent without an account has not been linked to one yet. */
+  requester_id: string | null;
   subject: string;
   goal: string;
   level: string | null;
@@ -23,10 +24,25 @@ export type RequestRow = RequestForRanking & {
   shortlisted_at: string | null;
   matched_at: string | null;
   created_at: string;
+  format_pref?: string | null;
+  /** From the public form (migration 20261108000200); absent on a database without it. */
+  contact_name?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  preferred_times?: string[];
+  preferred_days?: string[];
 };
 
 const REQUEST_COLS =
-  "id, requester_id, category, track, subject, goal, level, mode, county, budget_max_kes, schedule_notes, notes, status, submitted_at, shortlisted_at, matched_at, created_at";
+  "id, requester_id, category, track, subject, goal, level, mode, county, budget_max_kes, schedule_notes, notes, status, submitted_at, shortlisted_at, matched_at, created_at, format_pref";
+const CONTACT_COLS = ", contact_name, contact_email, contact_phone, preferred_times, preferred_days";
+
+type Read<T> = PromiseLike<{ data: T | null; error: { message: string } | null }>;
+/** Reads requests with the contact columns, or without them on a database that does not have them yet. */
+async function readRequests<T>(run: (cols: string) => Read<T>) {
+  const full = await run(REQUEST_COLS + CONTACT_COLS);
+  return full.error ? run(REQUEST_COLS) : full;
+}
 
 export type MatchRow = {
   id: string;
@@ -52,9 +68,10 @@ export async function getMyRequests(): Promise<RequestRow[]> {
   const c = await db();
   const { data: auth } = await c.auth.getUser();
   if (!auth.user) return [];
-  const { data, error } = await c.from("requests").select(REQUEST_COLS).eq("requester_id", auth.user.id).order("created_at", { ascending: false }).limit(20);
+  const uid = auth.user.id;
+  const { data, error } = await readRequests((cols) => c.from("requests").select(cols).eq("requester_id", uid).order("created_at", { ascending: false }).limit(20));
   if (error) throw new Error(`requests: ${error.message}`);
-  return (data ?? []) as RequestRow[];
+  return (data ?? []) as unknown as RequestRow[];
 }
 
 export type MyRequestView = {
@@ -66,7 +83,7 @@ export type MyRequestView = {
 export async function getMyRequest(id: string): Promise<MyRequestView | null> {
   if (!hasSupabase || !/^[0-9a-f-]{36}$/.test(id)) return null;
   const c = await db();
-  const { data: request, error } = await c.from("requests").select(REQUEST_COLS).eq("id", id).maybeSingle();
+  const { data: request, error } = await readRequests((cols) => c.from("requests").select(cols).eq("id", id).maybeSingle());
   if (error) throw new Error(`requests: ${error.message}`);
   if (!request) return null;
   const { data: matches } = await c
@@ -79,7 +96,7 @@ export async function getMyRequest(id: string): Promise<MyRequestView | null> {
   const { data: offers } = ids.length ? await c.from("explore_offers").select("*").in("id", ids) : { data: [] };
   const { data: threads } = await c.from("message_threads").select("id").eq("request_id", id).limit(1);
   return {
-    request: request as RequestRow,
+    request: request as unknown as RequestRow,
     matches: ((matches ?? []) as MatchRow[]).map((m) => ({ ...m, offer: ((offers ?? []) as ExploreOffer[]).find((o) => o.id === m.offering_id) ?? null })),
     threadId: threads?.[0]?.id ?? null,
   };
@@ -92,14 +109,10 @@ export async function getRequestQueue(view: "open" | "shortlisted" | "closed"): 
   if (!hasSupabase) return [];
   const statuses = view === "open" ? ["submitted", "triaged"] : view === "shortlisted" ? ["shortlisted"] : ["matched", "unmatched", "withdrawn"];
   const c = await db();
-  const { data, error } = await c
-    .from("requests")
-    .select(REQUEST_COLS)
-    .in("status", statuses)
-    .order("submitted_at", { ascending: view !== "closed" })
-    .limit(100);
+  const { data, error } = await readRequests((cols) =>
+    c.from("requests").select(cols).in("status", statuses).order("submitted_at", { ascending: view !== "closed" }).limit(100));
   if (error) throw new Error(`requests: ${error.message}`);
-  return (data ?? []) as RequestRow[];
+  return (data ?? []) as unknown as RequestRow[];
 }
 
 export type ConsoleView = {
@@ -113,13 +126,13 @@ export type ConsoleView = {
 export async function getConsole(id: string): Promise<ConsoleView | null> {
   if (!hasSupabase || !/^[0-9a-f-]{36}$/.test(id)) return null;
   const c = await db();
-  const { data: request, error } = await c.from("requests").select(REQUEST_COLS).eq("id", id).maybeSingle();
+  const { data: request, error } = await readRequests((cols) => c.from("requests").select(cols).eq("id", id).maybeSingle());
   if (error) throw new Error(`requests: ${error.message}`);
   if (!request) return null;
-  const r = request as RequestRow;
+  const r = request as unknown as RequestRow;
 
   const [profile, minutes, matches, offers, apps] = await Promise.all([
-    c.from("profiles").select("display_name").eq("id", r.requester_id).maybeSingle(),
+    r.requester_id ? c.from("profiles").select("display_name").eq("id", r.requester_id).maybeSingle() : Promise.resolve({ data: null }),
     c.from("staff_time_log").select("minutes").eq("subject_type", "request").eq("subject_id", id),
     c.from("matches").select("id, offering_id, teacher_id, rank, status, concierge_reason, decline_reason, source, created_at, offerings(title)").eq("request_id", id).order("created_at"),
     c.from("explore_offers").select("*").eq("track", r.track).limit(200),
@@ -164,7 +177,7 @@ export async function getConsole(id: string): Promise<ConsoleView | null> {
 
   return {
     request: r,
-    requesterName: (profile.data?.display_name as string | null)?.split(" ")[0] ?? "Requester",
+    requesterName: r.requester_id ? ((profile.data?.display_name as string | null)?.split(" ")[0] ?? "Requester") : (r.contact_name ?? "Guest"),
     minutes: ((minutes.data ?? []) as { minutes: number }[]).reduce((s, x) => s + x.minutes, 0),
     matches: ((matches.data ?? []) as unknown as (MatchRow & { offerings: { title: string } | null })[]).map(({ offerings, ...m }) => ({
       ...m,
