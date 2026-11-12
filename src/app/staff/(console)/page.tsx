@@ -8,7 +8,9 @@ import { PAGES } from "@/config/pages";
 export const metadata: Metadata = { title: "Staff console", robots: { index: false } };
 
 const QUEUES = [
-  { href: "/staff/listings", name: "Listing approvals", target: "Decide within 2 working days" },
+  { href: "/staff/applications", name: "Expert applications", target: "Documents, a 15-minute meeting, then the decision" },
+  { href: "/staff/profile-reviews", name: "Profile reviews", target: "Introduction videos, credentials and profile changes" },
+  { href: "/staff/listings", name: "Learning experience approvals", target: "Decide within 2 working days" },
   { href: "/staff/verification", name: "Verification", target: "Decide within 1 to 2 working days" },
   { href: "/staff/requests", name: "Requests", target: "Shortlist within 24 hours, match within 48" },
   { href: "/staff/disputes", name: "Disputes", target: "First response the same day" },

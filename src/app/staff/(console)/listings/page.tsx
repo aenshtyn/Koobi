@@ -2,15 +2,15 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Guarded } from "@/components/app/shell";
 import { ListingPill } from "@/components/app/listing-pill";
-import { getCounties, getPendingListings } from "@/lib/data/listings";
+import { getPendingListings } from "@/lib/data/listings";
 import { getSessionUser } from "@/lib/auth";
 import { categoryByCode } from "@/domain/taxonomy";
-import { formatDate, formatKES } from "@/domain/format";
-import { EMPLOYMENT, LANGUAGES, MEETING_TOOLS, OFFER_MODES, PRICE_BANDS, TEACHER_TYPES, blocksSubmission, sessionPrice } from "@/domain/listing-input";
+import { formatKES } from "@/domain/format";
+import { MEETING_TOOLS, OFFER_MODES, PRICE_BANDS, sessionPrice } from "@/domain/listing-input";
 import { STAFF_ROLES } from "@/lib/auth";
 import { Decide } from "./decide";
 
-export const metadata: Metadata = { title: "Listing approvals", robots: { index: false } };
+export const metadata: Metadata = { title: "Learning experience approvals", robots: { index: false } };
 
 const label = <T extends readonly (readonly [string, string])[]>(list: T, code: string | null) => list.find(([c]) => c === code)?.[1] ?? code ?? "—";
 
@@ -19,10 +19,10 @@ export default function ListingsPage(props: PageProps<"/staff/listings">) {
     <Guarded next="/staff/listings" anyOf={STAFF_ROLES}>
       <div className="flex flex-col gap-8">
         <div className="flex flex-col gap-2">
-          <h1 className="t1">Listing approvals</h1>
+          <h1 className="t1">Learning experience approvals</h1>
           <p className="text-ink-2">
-            Profiles and learning experiences waiting for a decision, oldest first. Target: two working days. A learning experience shows on Explore only when its
-            teacher&rsquo;s profile is approved too.
+            Learning experiences waiting for a decision, oldest first. Target: two working days. An approved learning experience shows on Explore once its
+            expert&rsquo;s profile is published. Expert applications and profile reviews have their own queues.
           </p>
         </div>
         <Suspense fallback={null}>
@@ -40,13 +40,13 @@ async function Done({ searchParams }: { searchParams: Promise<Record<string, str
   return (
     <div className="panel escrow items-center" role="status">
       <span className="seal" aria-hidden="true" />
-      <p>{done === "approved" ? "Approved. It is live on Explore if its teacher is approved too." : "Sent back with your note."}</p>
+      <p>{done === "approved" ? "Approved. It shows on Explore once the expert's profile is published." : "Sent back with your note."}</p>
     </div>
   );
 }
 
 async function Queue() {
-  const [{ teachers, offers }, counties, user] = await Promise.all([getPendingListings(), getCounties(), getSessionUser()]);
+  const [{ offers }, user] = await Promise.all([getPendingListings(), getSessionUser()]);
   const canDecide = !!user?.roles.some((r) => r === "reviewer" || r === "admin");
   return (
     <>
@@ -56,48 +56,9 @@ async function Queue() {
         </div>
       ) : null}
 
-      <section className="flex flex-col gap-4" aria-labelledby="t-h">
-        <h2 id="t-h" className="t2">
-          Profiles <span className="mono text-[16px] text-ink-2">{teachers.length}</span>
-        </h2>
-        {teachers.length ? (
-          teachers.map((t) => (
-            <article key={t.id} className="card flex flex-col gap-4 p-6">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="flex flex-col gap-1">
-                  <h3 className="t3">{t.display_name}</h3>
-                  <p>{t.headline}</p>
-                </div>
-                <span className="help">
-                  Sent <span className="mono">{t.submitted_at ? formatDate(t.submitted_at) : "—"}</span>
-                </span>
-              </div>
-              <dl className="grid gap-x-6 gap-y-2 text-[15px] sm:grid-cols-2">
-                <div><dt className="help">Type</dt><dd>{label(TEACHER_TYPES, t.teacher_type)}</dd></div>
-                <div>
-                  <dt className="help">Employment</dt>
-                  <dd className={blocksSubmission(t.employment_status) ? "font-semibold text-error" : ""}>{label(EMPLOYMENT, t.employment_status)}</dd>
-                </div>
-                <div><dt className="help">County</dt><dd>{counties.find((c) => c.code === t.county_code)?.label ?? "—"}</dd></div>
-                <div><dt className="help">Languages</dt><dd>{t.languages.map((l) => label(LANGUAGES, l)).join(", ")}</dd></div>
-                <div><dt className="help">Tracks</dt><dd>{t.tracks.join(", ") || "—"}</dd></div>
-                <div>
-                  <dt className="help">Declared</dt>
-                  <dd className="mono">{t.employment_declared_at ? formatDate(t.employment_declared_at) : "—"}</dd>
-                </div>
-              </dl>
-              <p className="whitespace-pre-line text-ink-2">{t.bio}</p>
-              {canDecide ? <Decide kind="teacher" id={t.id} label="profile" /> : null}
-            </article>
-          ))
-        ) : (
-          <p className="help">No profiles waiting.</p>
-        )}
-      </section>
-
       <section className="flex flex-col gap-4" aria-labelledby="o-h">
         <h2 id="o-h" className="t2">
-          Offers <span className="mono text-[16px] text-ink-2">{offers.length}</span>
+          Learning experiences <span className="mono text-[16px] text-ink-2">{offers.length}</span>
         </h2>
         {offers.length ? (
           offers.map((o) => {
