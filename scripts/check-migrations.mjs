@@ -28,6 +28,7 @@ create table auth.users (
   id uuid primary key default gen_random_uuid(),
   email text unique,
   phone text unique,
+  email_confirmed_at timestamptz,
   raw_user_meta_data jsonb not null default '{}',
   raw_app_meta_data jsonb not null default '{}',
   created_at timestamptz not null default now(),
@@ -146,6 +147,13 @@ async function main() {
   await db.exec('begin');
   try {
     await checkLearnerWorkspace();
+  } finally {
+    await db.exec('rollback');
+  }
+
+  await db.exec('begin');
+  try {
+    await checkAccountsAndGuestRequests();
   } finally {
     await db.exec('rollback');
   }
@@ -2062,5 +2070,120 @@ async function checkLearnerWorkspace() {
     ok("nobody can change another person's preferences", other === null, other);
   } catch (e) {
     if (!/^learner:/.test(e?.message ?? '')) fail('learner: flow stopped', e.message);
+  }
+}
+
+// ---------------------------------------------------------------------------- email accounts, guest requests
+async function checkAccountsAndGuestRequests() {
+  const N = 'a1111111-1111-1111-1111-111111111111'; // signs up to learn
+  const E = 'a2222222-2222-2222-2222-222222222222'; // signs up to teach
+  const H = 'a3333333-3333-3333-3333-333333333333'; // tries to sign up as staff
+  const C = 'a4444444-4444-4444-4444-444444444444'; // concierge
+  const G = 'a5555555-5555-5555-5555-555555555555'; // the guest, once they have an account
+  const U = 'a6666666-6666-6666-6666-666666666666'; // same email as a guest request, not confirmed
+  const p = 'accounts';
+  const step = async (name, fn) => {
+    try {
+      const r = await fn();
+      pass(`${p}: ${name}`);
+      return r;
+    } catch (e) {
+      fail(`${p}: ${name}`, e.message);
+      throw e;
+    }
+  };
+  const ok = (name, cond, detail) => (cond ? pass(`${p}: ${name}`) : fail(`${p}: ${name}`, JSON.stringify(detail)));
+  const err = (name, role, sub, sql, pattern) => expectError(`${p}: ${name}`, role, sub, q(sql), pattern);
+  const roles = async (id) => (await act('postgres', null, `select coalesce(array_agg(role::text order by role), '{}') r from public.user_roles where user_id = $1`, [id]))[0].r;
+  try {
+    // ---- sign-up: role and terms come from the form
+    await step('sign-up creates the profile, role and terms record', () => act('postgres', null, `insert into auth.users (id, email, email_confirmed_at, raw_user_meta_data) values
+      ($1, 'new@koobi.test', now(), '{"display_name": "Nia New", "intent": "self", "terms_version": "terms-2026-11-draft"}'),
+      ($2, 'exp@koobi.test', now(), '{"display_name": "Eli Expert", "intent": "teach", "terms_version": "terms-2026-11-draft"}'),
+      ($3, 'hack@koobi.test', now(), '{"display_name": "Hal", "intent": "admin", "role": "admin", "terms_version": "x"}'),
+      ($4, 'con@koobi.test', now(), '{"display_name": "Cate Concierge"}')`, [N, E, H, C]));
+    await act('postgres', null, `insert into public.user_roles (user_id, role) values ($1, 'concierge')`, [C]);
+    ok('"I want to learn" becomes the learner role', JSON.stringify(await roles(N)) === '["learner"]', await roles(N));
+    ok('"I want to teach" becomes the teacher role', JSON.stringify(await roles(E)) === '["teacher"]', await roles(E));
+    ok('no staff role can come from the sign-up form', (await roles(H)).length === 0, await roles(H));
+    const terms = await act('postgres', null, `select user_id, version, source from public.terms_acceptances order by user_id`);
+    ok('the accepted terms version is recorded, a malformed one is not', terms.length === 2 && terms.every((t) => t.version === 'terms-2026-11-draft' && t.source === 'signup'), terms);
+    const mine = await act('authenticated', N, `select version from public.terms_acceptances`);
+    ok('a person reads only their own acceptance', mine.length === 1, mine);
+    await err('nobody can write an acceptance directly', 'authenticated', N, `insert into public.terms_acceptances (user_id, version) values ('${N}', 'terms-9')`, /permission denied/);
+    await step('an older account accepts the terms later', () => act('authenticated', H, `select public.accept_terms('terms-2026-11-draft')`));
+    await err('accepting needs a sign-in', 'anon', null, `select public.accept_terms('terms-2026-11-draft')`, /permission denied/);
+
+    // ---- lockout
+    const wait = async (email) => (await act('anon', null, `select public.sign_in_wait($1) w`, [email]))[0].w;
+    let last = 0;
+    for (let i = 0; i < 4; i++) last = (await act('anon', null, `select public.note_sign_in_failure('New@Koobi.test') w`))[0].w;
+    ok('four wrong passwords do not lock', last === 0 && (await wait('new@koobi.test')) === 0, last);
+    last = (await act('anon', null, `select public.note_sign_in_failure('new@koobi.test ') w`))[0].w;
+    ok('the fifth locks the address for 15 minutes', last === 900 && (await wait('NEW@koobi.test')) > 890, last);
+    ok('an address with no account locks the same way', await (async () => {
+      let w = 0;
+      for (let i = 0; i < 5; i++) w = (await act('anon', null, `select public.note_sign_in_failure('nobody@koobi.test') w`))[0].w;
+      return w === 900;
+    })(), null);
+    ok('other addresses are not affected', (await wait('exp@koobi.test')) === 0, null);
+    const stored = await act('postgres', null, `select email_hash from private.sign_in_attempts`);
+    ok('only a hash of the address is kept', stored.length === 2 && stored.every((s) => /^[0-9a-f]{64}$/.test(s.email_hash)), stored);
+    await err('the attempts table is closed to the app roles', 'authenticated', N, `select * from private.sign_in_attempts`, /permission denied/);
+    await err('a signed-out caller cannot clear a count', 'anon', null, `select public.clear_sign_in_failures()`, /permission denied/);
+    await act('authenticated', E, `select public.clear_sign_in_failures()`);
+    ok("clearing touches only the caller's own address", (await wait('new@koobi.test')) > 0, null);
+    await act('postgres', null, `update private.sign_in_attempts set locked_until = now() - interval '1 second'`);
+    ok('the lock ends by itself', (await wait('new@koobi.test')) === 0, null);
+    await act('anon', null, `select public.note_sign_in_failure('new@koobi.test')`);
+    await act('authenticated', N, `select public.clear_sign_in_failures()`);
+    ok('a successful sign-in starts the count again', (await act('postgres', null, `select count(*)::int n from private.sign_in_attempts where email_hash = private.email_hash('new@koobi.test')`))[0].n === 0, null);
+
+    // ---- session length
+    const limit = async (id) => (await act('authenticated', id, `select public.session_limit_hours() h`))[0].h;
+    ok('sessions: learner 30 days, expert 7 days, staff 12 hours', (await limit(N)) === 720 && (await limit(E)) === 168 && (await limit(C)) === 12, [await limit(N), await limit(E), await limit(C)]);
+    await act('postgres', null, `insert into public.user_roles (user_id, role) values ($1, 'learner')`, [C]);
+    ok('the strictest role wins', (await limit(C)) === 12, null);
+
+    // ---- a request without an account
+    const send = (role, sub, email = 'guest@koobi.test', need = 'English for client meetings, twice a week') =>
+      act(role, sub, `select public.submit_match_request('career_professional_growth', $2, 'one_to_one', '{evening}', '{mon,wed}', 2000,
+        'Grace Guest', $1, '+254711000099', 'request-contact-2026-11') id`, [email, need]);
+    const [{ id: rid }] = await step('a visitor with no account sends a request', () => send('anon', null, 'Guest@Koobi.test'));
+    const [row] = await act('postgres', null, `select requester_id, status::text, mode, track, subject, format_pref, contact_email, contact_phone,
+      contact_consent_at is not null consent, preferred_times, preferred_days, schedule_notes, budget_max_kes from public.requests where id = $1`, [rid]);
+    ok('it is stored with no owner, online, with the contact details and consent', row.requester_id === null && row.status === 'submitted' && row.mode === 'online'
+      && row.track === 'adults_professional' && row.contact_email === 'guest@koobi.test' && row.consent === true && row.format_pref === 'one_to_one'
+      && row.preferred_days.join() === 'mon,wed' && row.schedule_notes === 'Evening · Mon, Wed' && row.budget_max_kes === 2000, row);
+    await err('consent is required', 'anon', null, `select public.submit_match_request('school_academic', 'KCSE mathematics revision', null, '{}', '{}', null, 'A B', 'a@b.co', null, null)`, /tick the box/);
+    await err('the need must say something', 'anon', null, `select public.submit_match_request('school_academic', 'maths', null, '{}', '{}', null, 'A B', 'a@b.co', null, 'v-1')`, /10 to 500/);
+    await err('an unknown category is refused', 'anon', null, `select public.submit_match_request('astrology', 'KCSE mathematics revision', null, '{}', '{}', null, 'A B', 'a@b.co', null, 'v-1')`, /what you would like to learn/);
+    await err('an unknown day is refused', 'anon', null, `select public.submit_match_request('school_academic', 'KCSE mathematics revision', null, '{}', '{someday}', null, 'A B', 'a@b.co', null, 'v-1')`, /requests_preferred_days/);
+    await err('a visitor cannot insert a request directly', 'anon', null, `insert into public.requests (category, track, subject, goal, mode) values ('school_academic', 'school', 'x', 'y', 'online')`, /permission denied/);
+    await err('a visitor cannot read requests', 'anon', null, `select * from public.requests`, /permission denied/);
+    await send('anon', null);
+    await send('anon', null);
+    await err('one address can send three requests a day', 'anon', null, `select public.submit_match_request('school_academic', 'KCSE mathematics revision', null, '{}', '{}', null, 'A B', 'guest@koobi.test', null, 'v-1')`, /three requests today/);
+
+    const seen = await act('authenticated', C, `select id, contact_name, contact_email from public.requests where requester_id is null`);
+    ok('the concierge sees guest requests with the contact details', seen.length === 3 && seen[0].contact_name === 'Grace Guest', seen);
+    ok('other signed-in people do not', (await act('authenticated', N, `select id from public.requests`)).length === 0, null);
+
+    // ---- linking to an account by confirmed email
+    await act('postgres', null, `insert into auth.users (id, email, raw_user_meta_data) values ($1, 'other@koobi.test', '{"display_name": "Una Unconfirmed", "intent": "self"}')`, [U]);
+    await act('postgres', null, `update public.requests set contact_email = 'other@koobi.test' where id = (select id from public.requests where requester_id is null and id <> $1 limit 1)`, [rid]);
+    ok('an unconfirmed email links nothing', (await act('authenticated', U, `select public.claim_guest_requests() n`))[0].n === 0, null);
+    ok('someone with a different email links nothing', (await act('authenticated', N, `select public.claim_guest_requests() n`))[0].n === 0, null);
+    await act('postgres', null, `insert into auth.users (id, email, email_confirmed_at, raw_user_meta_data) values ($1, 'guest@koobi.test', now(), '{"display_name": "Grace Guest", "intent": "self"}')`, [G]);
+    const [{ n }] = await step('signing up with the same confirmed email links the requests', () => act('authenticated', G, `select public.claim_guest_requests() n`));
+    const own = await act('authenticated', G, `select id, claimed_at is not null claimed from public.requests`);
+    ok('the guest now owns their requests and nobody else\'s', n === 2 && own.length === 2 && own.every((r) => r.claimed), { n, own });
+    await err('linking needs a sign-in', 'anon', null, `select public.claim_guest_requests()`, /permission denied/);
+
+    const [mine2] = await step('a signed-in person sends the same form', () => send('authenticated', N, 'new@koobi.test', 'Bookkeeping for my shop, weekends'));
+    const [owned] = await act('authenticated', N, `select requester_id, contact_name from public.requests where id = $1`, [mine2.id]);
+    ok('it belongs to them straight away', owned?.requester_id === N, owned);
+  } catch (e) {
+    if (!/^accounts:/.test(e?.message ?? '')) fail('accounts: flow stopped', e.message);
   }
 }
