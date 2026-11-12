@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { PAGES, findPage, pagesIn } from "./pages";
 
 describe("page registry", () => {
-  it("lists 122 screens in the agreed split (109 planned, plus launch readiness, the expert Business, Account, Tips and Group details pages, and the eight learner workspace pages)", () => {
-    expect(PAGES).toHaveLength(122);
-    expect(pagesIn("public")).toHaveLength(16);
-    expect(pagesIn("auth")).toHaveLength(3);
+  it("lists 132 screens in the agreed split (109 planned, plus launch readiness, the expert Business, Account, Tips and Group details pages, the eight learner workspace pages, and the email sign-up, request-sent and staff setup pages, and the expert profile preview and three staff onboarding screens)", () => {
+    expect(PAGES).toHaveLength(132);
+    expect(pagesIn("public")).toHaveLength(17);
+    expect(pagesIn("auth")).toHaveLength(6);
     expect(pagesIn("learner")).toHaveLength(34);
-    expect(pagesIn("teacher")).toHaveLength(32);
-    expect(pagesIn("staff")).toHaveLength(27);
+    expect(pagesIn("teacher")).toHaveLength(33);
+    expect(pagesIn("staff")).toHaveLength(32);
     expect(pagesIn("system")).toHaveLength(10);
   });
   it("has unique ids and routes", () => {
