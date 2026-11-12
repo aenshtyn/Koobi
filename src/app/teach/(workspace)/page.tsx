@@ -13,7 +13,7 @@ import { getMyRequirements } from "@/lib/data/expert";
 import { getTeachingBookings } from "@/lib/data/bookings";
 import { getSessionsFor } from "@/lib/data/lessons";
 import { getThreads } from "@/lib/data/matching";
-import { getEarningsByMonth, monthLabel } from "@/lib/data/earnings";
+import { getEarningsByMonth, getMyTeacherPayout, monthLabel } from "@/lib/data/earnings";
 import { formatKES, formatTime } from "@/domain/format";
 import { KIND_LABELS } from "@/domain/booking";
 import { OFFER_MODES } from "@/domain/listing-input";
@@ -52,7 +52,7 @@ async function Dashboard({ searchParams }: { searchParams: Promise<Record<string
     );
   }
 
-  const [offers, req] = await Promise.all([getMyOffers(teacher.id), getMyRequirements()]);
+  const [offers, req, payout] = await Promise.all([getMyOffers(teacher.id), getMyRequirements(), getMyTeacherPayout()]);
   const [windows, everyBooking, threads, months] = await Promise.all([getWindows(offers.map((o) => o.id)), getTeachingBookings(), getThreads(), getEarningsByMonth(6)]);
   const bookings = everyBooking.filter((b) => b.kind !== "seat"); // a seat is shown with its group
 
@@ -105,8 +105,8 @@ async function Dashboard({ searchParams }: { searchParams: Promise<Record<string
     {
       href: "/teach/verification/payout-number",
       label: "Add your M-Pesa payout number",
-      sub: teacher.status === "bookable" ? "Payout number checked." : "Needed before learners can book you and before your first payout.",
-      done: teacher.status === "bookable",
+      sub: payout.ownership === "passed" ? "Payout number checked." : "Learners can already book you. Add it before your first payout: earnings wait for it.",
+      done: payout.ownership === "passed",
       Icon: ShieldCheck,
     },
   ];
@@ -132,7 +132,7 @@ async function Dashboard({ searchParams }: { searchParams: Promise<Record<string
           className={`pill self-start no-underline ${teacher.status === "bookable" ? "bg-forest-tint text-forest-ink" : "bg-sand text-ink"}`}
         >
           <ShieldCheck size={16} aria-hidden="true" />
-          {teacher.status === "bookable" ? "ID and payout number checked" : "Checks not finished"}
+          {teacher.status === "bookable" ? "Identity verified" : "Identity not verified yet"}
         </Link>
       </div>
 

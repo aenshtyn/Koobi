@@ -16,7 +16,7 @@ const TIPS = [
   {
     Icon: ShieldCheck,
     title: "Finish your checks",
-    body: "Learners can only book you once your ID and payout number are checked. Each passed check shows on your profile with its date.",
+    body: "Add your M-Pesa payout number and KRA PIN early: learners can book you without them, but your earnings are paid out only once both are in.",
     href: "/teach/verification",
     cta: "Open verification",
   },

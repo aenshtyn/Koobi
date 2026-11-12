@@ -127,7 +127,9 @@ export async function checkExpertOnboarding({ act, expectError, pass, fail, q })
     cur = await row(t.id);
     const [idCheck] = await act('postgres', null, `select status::text, passed_at from public.verification_checks where teacher_id = $1 and check_type = 'identity_iprs'`, [t.id]);
     ok('status is Approved, and the verified ID counts as the identity check', cur.application_status === 'approved' && idCheck?.status === 'passed' && !!idCheck.passed_at, { cur: cur.application_status, idCheck });
-    ok('approval alone does not open bookings: the payout number is still needed', cur.status === 'applied', cur.status);
+    const [gate] = await act('postgres', null, `select t.status::text, t.payout_ownership_status p, (select max(tt.tier) from public.teacher_tracks tt where tt.teacher_id = t.id) tier
+      from public.teachers t where t.id = $1`, [t.id]);
+    ok('an approved expert can be booked before the payout number is proven', gate.status === 'bookable' && gate.p === 'pending' && gate.tier === 1, gate);
     ok('approval publishes nothing', cur.listing_status === 'draft'
       && (await act('anon', null, `select 1 from public.public_teachers where slug = $1`, [t.slug])).length === 0, cur.listing_status);
     ok('the confirmation goes out by email', (await notices(A, 'application_approved', 'email')) === 1, null);
@@ -161,7 +163,6 @@ export async function checkExpertOnboarding({ act, expectError, pass, fail, q })
 
     // ---- publication
     await err('publishing needs an approved learning experience', A, `select public.publish_profile()`, /learning experience must be approved/);
-    await act('authenticated', A, `insert into public.teacher_tracks (teacher_id, track) values ($1, 'adults_professional')`, [t.id]);
     const [offer] = await act('authenticated', A, `insert into public.offerings (teacher_id, title, summary, category, track, format, subject_text,
         modes, meeting_tool, duration_minutes, price_hour_kes, language_codes)
       values ($1, 'Bookkeeping for small shops', 'Keep books that tell you the truth.', 'business_entrepreneurship', 'adults_professional', 'one_to_one',
@@ -228,6 +229,17 @@ export async function checkExpertOnboarding({ act, expectError, pass, fail, q })
     await step('an admin reopens it for more information', () =>
       act('authenticated', AD, `select public.application_decide($1, 'more_info', 'Please send proof of your experience.')`, [b.id]));
     ok('the reopened application is back with the applicant', (await row(b.id)).application_status === 'more_info', null);
+    ok('an applicant who is not approved cannot be booked', (await row(b.id)).status === 'applied', null);
+
+    // ---- money still waits for the payout number: the batch holds the expert back, the amount stays owed
+    await act('postgres', null, `update public.teachers set kra_pin_enc = 'v1:a3JhcGluY2lwaGVydGV4dDAwMDA=' where id = $1`, [t.id]);
+    const [txn] = await act('postgres', null, `insert into public.ledger_transactions (kind, idempotency_key, memo, posted_by)
+      values ('session_release', 'expert-gate-test', 'test release', 'system:test') returning id`);
+    await act('postgres', null, `insert into public.ledger_entries (txn_id, account, side, amount_kes, counterparty_user_id) values
+      ($1, 'client_funds_held', 'debit', 1200, null), ($1, 'teacher_payable', 'credit', 1200, $2)`, [txn.id, A]);
+    await act('postgres', null, `select private.compute_payout_batch(current_date, now() + interval '1 minute')`);
+    const [held] = await act('postgres', null, `select status::text, exclusion_reason, net_kes from public.payouts where teacher_id = $1`, [t.id]);
+    ok('no payout leaves before the payout number is proven', held?.status === 'excluded' && /Payout number not verified/.test(held.exclusion_reason) && held.net_kes === 1200, held);
   } catch (e) {
     if (!/^expert:/.test(e?.message ?? '')) fail('expert: flow stopped', e.message);
   }

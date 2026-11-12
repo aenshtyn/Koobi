@@ -93,8 +93,8 @@ async function Account() {
                   <span className="font-sans!">{LISTING_LABELS[teacher.listing_status] ?? teacher.listing_status}</span>
                 </div>
                 <div className="kv">
-                  <span>ID and payout checks</span>
-                  <span className="font-sans!">{teacher.status === "bookable" ? "Passed" : "Not finished"}</span>
+                  <span>Identity</span>
+                  <span className="font-sans!">{teacher.status === "bookable" ? "Verified" : "Not verified yet"}</span>
                 </div>
                 <div className="kv">
                   <span>Payout number</span>

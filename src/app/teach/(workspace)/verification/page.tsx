@@ -67,13 +67,13 @@ async function Checks() {
         <Item
           href="/teach/verification/payout-number"
           title="M-Pesa payout number"
-          text="A small test payout proves the number is yours. Needed before learners can book you and before your first payout."
+          text="A small test payout proves the number is yours. Learners can book you without it, but your earnings are paid out only once it is proven."
           status={payoutCheck?.status ?? null}
         />
         <Item
           href="/teach/settings"
           title="KRA PIN"
-          text="Needed before your first payout, for the tax withheld on your behalf."
+          text="Needed before your first payout, for the tax withheld on your behalf. Earnings wait until it is added."
           pill={<span className={`pill ${payout.kraMasked ? "bg-forest-tint text-forest-ink" : "bg-sand text-ink"}`}>{payout.kraMasked ? "Added" : "Not added"}</span>}
         />
       </ul>
