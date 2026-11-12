@@ -31,14 +31,16 @@ export const TEACHER_NAV: NavItem[] = [
   { href: "/teach/earnings", label: "Earnings & Payouts", tabLabel: "Earnings", icon: "wallet", section: "Business", tab: true, also: ["/teach/statements"] },
   { href: "/teach/reviews", label: "Reviews & Ratings", icon: "star", section: "Business" },
   { href: "/teach/account", label: "Profile & Account", icon: "user", section: "Profile & Account" },
-  { href: "/teach/profile", label: "Public Profile", icon: "globe", section: "Profile & Account", also: ["/teach/apply"] },
+  { href: "/teach/profile", label: "Public Profile", icon: "globe", section: "Profile & Account" },
   { href: "/teach/verification", label: "Verification", icon: "shield", section: "Profile & Account", also: ["/teach/waitlist"] },
   { href: "/teach/settings", label: "Settings", icon: "settings", section: "Profile & Account" },
 ];
 
 export const STAFF_NAV: NavItem[] = [
   { href: "/staff", label: "Home", icon: "house", tab: true },
-  { href: "/staff/listings", label: "Listing approvals", icon: "listchecks", section: "Operations", tab: true },
+  { href: "/staff/applications", label: "Expert applications", tabLabel: "Applications", icon: "user", section: "Operations", tab: true },
+  { href: "/staff/profile-reviews", label: "Profile reviews", icon: "globe", section: "Operations" },
+  { href: "/staff/listings", label: "Learning experience approvals", icon: "listchecks", section: "Operations" },
   { href: "/staff/verification", label: "Verification", icon: "badge", section: "Operations" },
   { href: "/staff/requests", label: "Requests", icon: "inbox", section: "Operations", tab: true },
   { href: "/staff/bookings", label: "Bookings", icon: "calendar", section: "Operations" },

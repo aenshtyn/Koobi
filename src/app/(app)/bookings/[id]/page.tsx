@@ -13,7 +13,7 @@ import { formatDate, formatKES, formatTime } from "@/domain/format";
 import { AUTO_CONFIRM_HOURS, DISPUTE_STATUS_LABELS, PROBLEM_TYPES, cancelPreview, problemTypesFor } from "@/domain/booking";
 import { CancelForm } from "../forms";
 import { getMySeat } from "@/lib/data/runs";
-import { RescheduleAnswer, RescheduleForm } from "@/app/teach/sessions/forms";
+import { RescheduleAnswer, RescheduleForm } from "@/app/teach/(workspace)/sessions/forms";
 import { TIME_OPTIONS, dayKey } from "@/domain/schedule";
 
 export const metadata: Metadata = { title: "Booking" };
