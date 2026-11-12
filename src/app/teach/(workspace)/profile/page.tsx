@@ -98,7 +98,7 @@ async function Profile() {
       </div>
 
       {pending ? (
-        <div className="panel info flex-wrap items-center" role="status">
+        <div className="panel info items-center max-sm:flex-col max-sm:items-start" role="status">
           <p className="min-w-0 flex-1">
             <b>Changes waiting for review:</b> {Object.keys(pending.changes).map((k) => REVIEWED_FIELDS[k] ?? k).join(", ")}. Learners keep seeing your current profile until they are approved.
             {pending.identity_recheck ? " A change of legal name is checked against your identity document." : ""}

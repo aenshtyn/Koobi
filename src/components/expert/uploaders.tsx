@@ -86,7 +86,7 @@ export function PhotoUploader({ url, name, error }: { url: string | null; name: 
 export type DocRow = { id: string; kind: CredentialKind; title: string; issuer: string | null; file_name: string | null; status: string; note: string | null };
 
 /** One list of uploaded documents with their own status, and a remove button where removing is allowed. */
-export function DocumentList({ rows, canRemove }: { rows: DocRow[]; canRemove: boolean }) {
+export function DocumentList({ rows, canRemove, sent = false }: { rows: DocRow[]; canRemove: boolean; /** The documents are already with Koobi (after the application), so a new one is waiting for review. */ sent?: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -106,7 +106,7 @@ export function DocumentList({ rows, canRemove }: { rows: DocRow[]; canRemove: b
                 {d.status === "rejected" && d.note ? ` · ${d.note}` : ""}
               </span>
             </span>
-            <span className={`pill ${st.tone}`}>{d.status === "submitted" ? "Uploaded" : st.label}</span>
+            <span className={`pill ${st.tone}`}>{d.status === "submitted" && !sent ? "Uploaded" : st.label}</span>
             {canRemove && !locked ? (
               <button
                 type="button"

@@ -135,7 +135,9 @@ async function Queue() {
               </div>
               {ch.identity_recheck ? (
                 <p className="panel error">
-                  <b>Legal name change.</b> Check the new name against the identity document on the application before approving. Ask for a new document if it does not match.
+                  <span>
+                    <b>Legal name change.</b> Check the new name against the identity document on the application before approving. Ask for a new document if it does not match.
+                  </span>
                 </p>
               ) : null}
               <div className="overflow-x-auto">

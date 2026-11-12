@@ -577,7 +577,7 @@ function Summary({ n, title, lines, ok }: { n: number; title: string; lines: (st
           {n}. {title}
         </h2>
         {lines.filter(Boolean).map((l, i) => (
-          <p key={i} className="truncate text-[15px] text-ink-2">
+          <p key={i} className="line-clamp-2 text-[15px] text-ink-2">
             {l}
           </p>
         ))}

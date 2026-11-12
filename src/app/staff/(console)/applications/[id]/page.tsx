@@ -114,7 +114,9 @@ async function Detail({ params, searchParams }: { params: Promise<{ id: string }
       {!canDecide ? <p className="panel info">You can read this application. Verifying documents and deciding needs the reviewer or admin role.</p> : null}
       {s === "more_info" || s === "rejected" ? (
         <p className="panel">
-          <b>{s === "rejected" ? "Reason given:" : "Asked for:"}</b> {app.application_note}
+          <span>
+            <b>{s === "rejected" ? "Reason given:" : "Asked for:"}</b> {app.application_note}
+          </span>
         </p>
       ) : null}
 

@@ -33,7 +33,7 @@ async function Credentials() {
           <BadgeCheck size={22} aria-hidden="true" className="text-orange" />
           Your qualifications
         </h2>
-        {others.length ? <DocumentList rows={others} canRemove /> : <p className="help">None yet. Qualifications are optional: many experts teach from practical experience.</p>}
+        {others.length ? <DocumentList rows={others} canRemove sent /> : <p className="help">None yet. Qualifications are optional: many experts teach from practical experience.</p>}
       </section>
       <section className="card flex flex-col gap-5 p-5 sm:p-6" aria-labelledby="add-h">
         <div className="flex flex-col gap-1">
@@ -61,7 +61,7 @@ async function Credentials() {
           Identity document
         </h2>
         <p className="help">Seen only by Koobi reviewers. It never appears on your public profile. Upload a new one if your legal name changes.</p>
-        <DocumentList rows={identity} canRemove={false} />
+        <DocumentList rows={identity} canRemove={false} sent />
         {idRejected || !identity.length ? <DocumentAdder kind="identity" button="Upload identification document" /> : null}
       </section>
     </div>

@@ -92,13 +92,16 @@ async function Preview({ searchParams }: { searchParams: Promise<Record<string, 
         </p>
       ) : (
         <p className="panel" role="note">
-          <b>Not published.</b> Learners cannot see your profile yet. Below is the approved information that would be shown if you published now.
+          <span>
+            <b>Not published.</b> Learners cannot see your profile yet. Below is the approved information that would be shown if you published now.
+          </span>
         </p>
       )}
       <div className="rounded-[24px] border-[1.5px] border-dashed border-line-2 bg-paper p-4 sm:p-6">
         <ExpertProfile
           data={data}
           changed={changed}
+          showEmpty
           experiences={
             <section className="flex flex-col gap-3" aria-labelledby="pv-offers">
               <h2 id="pv-offers" className="h4">

@@ -89,7 +89,9 @@ async function IntroVideo() {
           <p className="text-ink-2">{st.text}</p>
           {bad && working?.note ? (
             <p className="panel error mt-1">
-              <b>From the reviewer:</b> {working.note}
+              <span>
+                <b>From the reviewer:</b> {working.note}
+              </span>
             </p>
           ) : null}
           {live && working && working.id !== live.id ? <p className="help">Your approved video keeps playing on your profile until a new one is approved.</p> : null}

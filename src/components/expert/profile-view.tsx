@@ -50,6 +50,7 @@ export function ExpertProfile({
   experiences,
   reviews,
   changed,
+  showEmpty = false,
 }: {
   data: ProfileData;
   /** Buttons under the name: explore, follow, message. */
@@ -58,6 +59,8 @@ export function ExpertProfile({
   reviews?: React.ReactNode;
   /** Field names whose value is a draft not yet live (the expert's preview). */
   changed?: Set<string>;
+  /** Show sections that have nothing in them yet (the expert's preview). Learners never see an empty section. */
+  showEmpty?: boolean;
 }) {
   const is = (k: string) => changed?.has(k);
   const country = countryLabel(data.countryCode);
@@ -140,13 +143,14 @@ export function ExpertProfile({
         </div>
       </section>
 
-      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_280px]">
+      <div className={`grid items-start gap-5 ${points.length || showEmpty ? "lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_280px]" : "lg:grid-cols-[minmax(0,1fr)_280px]"}`}>
         <section className="card flex flex-col gap-3 p-5" aria-labelledby="xp-about">
           <Heading id="xp-about" Icon={UserRound}>
             About me <Waiting on={is("bio")} />
           </Heading>
           {data.bio ? <p className="text-[15px] leading-6 whitespace-pre-line">{data.bio}</p> : <p className="text-ink-2">No biography yet.</p>}
         </section>
+        {points.length || showEmpty ? (
         <section className="card r2 flex flex-col gap-3 p-5" aria-labelledby="xp-bg">
           <Heading id="xp-bg" Icon={Briefcase}>
             Professional background <Waiting on={is("achievements") || is("experience_band")} />
@@ -164,6 +168,7 @@ export function ExpertProfile({
             <p className="text-ink-2">Not added yet.</p>
           )}
         </section>
+        ) : null}
         <aside className="flex flex-col gap-3 rounded-[20px] bg-forest-wash p-5" aria-labelledby="xp-glance">
           <h2 id="xp-glance" className="h4">
             Expert at a glance
@@ -245,22 +250,38 @@ export function ExpertProfile({
           Areas of expertise <Waiting on={is("primary_category") || is("specialisations") || is("audiences") || is("languages") || is("learner_outcomes")} />
         </Heading>
         <dl className="grid gap-x-6 gap-y-4 text-[15px] sm:grid-cols-2 lg:grid-cols-4">
-          <div className="flex flex-col gap-1">
-            <dt className="text-sm font-semibold">Primary category</dt>
-            <dd>{categoryLabel(data.category) ?? "—"}</dd>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <dt className="text-sm font-semibold">Specialisations</dt>
-            <dd className="flex flex-wrap gap-1.5">{data.specialisations.length ? data.specialisations.map((s) => <span key={s} className="pill bg-orange-wash">{s}</span>) : "—"}</dd>
-          </div>
-          <div className="flex flex-col gap-1">
-            <dt className="text-sm font-semibold">Who I work with</dt>
-            <dd>{data.audiences.length ? data.audiences.map(audienceLabel).join(", ") : "—"}</dd>
-          </div>
-          <div className="flex flex-col gap-1">
-            <dt className="text-sm font-semibold">Languages of delivery</dt>
-            <dd>{data.languages.length ? data.languages.join(" · ") : "—"}</dd>
-          </div>
+          {data.category || showEmpty ? (
+            <div className="flex flex-col gap-1">
+              <dt className="text-sm font-semibold">Primary category</dt>
+              <dd>{categoryLabel(data.category) ?? "—"}</dd>
+            </div>
+          ) : null}
+          {data.specialisations.length || showEmpty ? (
+            <div className="flex flex-col gap-1.5">
+              <dt className="text-sm font-semibold">Specialisations</dt>
+              <dd className="flex flex-wrap gap-1.5">
+                {data.specialisations.length
+                  ? data.specialisations.map((sp) => (
+                      <span key={sp} className="pill bg-orange-wash">
+                        {sp}
+                      </span>
+                    ))
+                  : "—"}
+              </dd>
+            </div>
+          ) : null}
+          {data.audiences.length || showEmpty ? (
+            <div className="flex flex-col gap-1">
+              <dt className="text-sm font-semibold">Who I work with</dt>
+              <dd>{data.audiences.length ? data.audiences.map(audienceLabel).join(", ") : "—"}</dd>
+            </div>
+          ) : null}
+          {data.languages.length || showEmpty ? (
+            <div className="flex flex-col gap-1">
+              <dt className="text-sm font-semibold">Languages of delivery</dt>
+              <dd>{data.languages.length ? data.languages.join(" · ") : "—"}</dd>
+            </div>
+          ) : null}
         </dl>
         {data.outcomes ? (
           <p className="border-t border-dashed border-line-2 pt-3 text-[15px]">
