@@ -34,44 +34,6 @@ export const CHECK_STATUS_LABELS: Record<string, string> = {
   expired: "Expired",
 };
 
-/** The ladder (FR-VER-1). Tier 1 is identity; payout ownership is needed to be paid, not for a tier. */
-export const LADDER: { tier: number; title: string; text: string; checks: { type: string; href: string }[] }[] = [
-  {
-    tier: 1,
-    title: "Identity",
-    text: "Your ID, checked against your photo. Needed before anyone can book you.",
-    checks: [
-      { type: "identity_iprs", href: "/teach/verification/identity" },
-      { type: "payout_ownership", href: "/teach/verification/payout-number" },
-    ],
-  },
-  {
-    tier: 2,
-    title: "Qualifications or experience",
-    text: "Certificates, a TSC number, or evidence of your practice and two references.",
-    checks: [
-      { type: "certificate_kcse", href: "/teach/verification/documents" },
-      { type: "certificate_degree", href: "/teach/verification/documents" },
-      { type: "certificate_tsc", href: "/teach/verification/documents" },
-      { type: "tsc_lookup", href: "/teach/verification/documents" },
-      { type: "credential_professional", href: "/teach/verification/documents" },
-      { type: "experience_evidence", href: "/teach/verification/evidence" },
-      { type: "teaching_reference", href: "/teach/verification/evidence" },
-    ],
-  },
-  { tier: 3, title: "Police clearance", text: "A Certificate of Good Conduct.", checks: [{ type: "good_conduct", href: "/teach/verification/documents" }] },
-  {
-    tier: 4,
-    title: "Tested teaching",
-    text: "A subject test for school learning experiences, or a short recorded demo lesson.",
-    checks: [
-      { type: "subject_test", href: "/teach/offers" },
-      { type: "demo_lesson", href: "/teach/verification/demo" },
-    ],
-  },
-  { tier: 5, title: "Track record", text: "Earned on Koobi from confirmed lessons and reviews.", checks: [] },
-];
-
 export const DOC_KINDS: Record<string, string> = {
   id_front: "ID, front",
   id_back: "ID, back",

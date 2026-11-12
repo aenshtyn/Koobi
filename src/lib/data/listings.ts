@@ -27,6 +27,8 @@ export type MyTeacher = {
   submitted_at: string | null;
   approved_at: string | null;
   status: string;
+  /** Expert approval (the application). "approved" opens the dashboard; it publishes nothing. */
+  application_status: string;
   tracks: string[];
 };
 
@@ -78,7 +80,13 @@ export async function getMyTeacher(): Promise<MyTeacher | null> {
   const db = await serverClient();
   const { data: auth } = await db.auth.getUser();
   if (!auth.user) return null;
-  const { data, error } = await db.from("teachers").select(TEACHER_COLS).eq("user_id", auth.user.id).maybeSingle();
+  const { data, error } = await db.from("teachers").select(`${TEACHER_COLS}, application_status`).eq("user_id", auth.user.id).maybeSingle();
+  if (error?.code === "42703") {
+    // The expert onboarding migration is not on this database yet: everyone with a row keeps the dashboard.
+    const old = await db.from("teachers").select(TEACHER_COLS).eq("user_id", auth.user.id).maybeSingle();
+    if (old.error) throw new Error(`teachers: ${old.error.message}`);
+    return old.data ? toTeacher({ ...(old.data as unknown as TeacherRow), application_status: "approved" }) : null;
+  }
   if (error) throw new Error(`teachers: ${error.message}`);
   return data ? toTeacher(data as unknown as TeacherRow) : null;
 }

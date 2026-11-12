@@ -59,6 +59,22 @@ export type PublicTeacher = {
   review_count: number;
   rating_avg: number | null;
   member_since: string;
+  /** Added by the expert onboarding migration; absent on a database that does not have it yet. */
+  country_code?: string | null;
+  experience_band?: string | null;
+  achievements?: string | null;
+  primary_category?: string | null;
+  specialisations?: string[];
+  audiences?: string[];
+  formats_offered?: string[];
+  learner_outcomes?: string | null;
+  /** The expert's application was approved by Koobi. */
+  verified?: boolean;
+  /** An approved introduction video exists; it plays from /teachers/[slug]/video. */
+  has_video?: boolean;
+  /** Qualifications Koobi verified one by one. Identity documents are never here. */
+  credentials?: { title: string; kind: "education" | "certification" | "licence"; issuer: string | null }[];
+  weekly_hours?: { weekday: number; starts: string; ends: string }[];
 };
 
 /** Mirrors public.public_reviews. */
