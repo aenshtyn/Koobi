@@ -7,8 +7,8 @@ export function NotConnected() {
   return (
     <div className="panel info" role="note">
       <p>
-        <b>Sign-in is not connected here.</b> Add the Supabase keys to <span className="mono">.env.local</span> to send real
-        codes. In local development the signed-in screens open without signing in:{" "}
+        <b>Sign-in is not connected here.</b> Add the Supabase keys to <span className="mono">.env.local</span> to create
+        real accounts. In local development the signed-in screens open without signing in:{" "}
         <Link href="/home">learner</Link>, <Link href="/teach">teacher</Link>, <Link href="/staff">staff</Link>.
       </p>
     </div>

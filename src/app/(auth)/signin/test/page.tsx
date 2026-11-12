@@ -21,7 +21,7 @@ export default function TestSignInPage() {
       <div className="panel info" role="note">
         <p>
           <b>Not for real people.</b> This page exists only where test accounts are switched on. Real users sign in with
-          their phone on the <Link href="/signin">normal sign-in page</Link>.
+          their email and password on the <Link href="/signin">normal sign-in page</Link>.
         </p>
       </div>
       <TestSignInForm accounts={TEST_ACCOUNTS.map(({ key, email, label, note }) => ({ key, email, label, note }))} />

@@ -9,6 +9,7 @@ export const STAFF_ROLES: Role[] = ["concierge", "reviewer", "finance", "admin"]
 export type SessionUser = {
   id: string;
   phone: string | null;
+  email?: string | null;
   name: string | null;
   roles: Role[];
   /** true only in local development without Supabase, so shells can be reviewed */
@@ -38,6 +39,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   return {
     id: data.user.id,
     phone: (profile?.phone_e164 as string | null) ?? data.user.phone ?? null,
+    email: data.user.email ?? (profile?.email as string | null) ?? null,
     name: (profile?.display_name as string | null) ?? null,
     roles,
     dev: false,

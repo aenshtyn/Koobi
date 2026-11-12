@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Logo } from "@/components/ui/trust";
 import { brand } from "@/config/brand";
 
-/** Sign-in screens follow Wazi's rules: plain, large, high contrast, no hand lettering. */
+/** Sign-in and sign-up screens follow Wazi's rules: plain, large, high contrast, no hand lettering. */
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="app flex min-h-dvh flex-col">

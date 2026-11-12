@@ -9,7 +9,7 @@ const FAQ: { group: string; items: [string, React.ReactNode][] }[] = [
   {
     group: "Booking and paying",
     items: [
-      ["Do I need an account to look around?", "No. You only sign in, with your phone number, when you book or teach."],
+      ["Do I need an account to look around?", "No. You only create an account, with your email and a password, when you book, message, follow or teach. You can also request a match without one."],
       ["How do I pay?", "By M-Pesa: we send a prompt to your phone and you enter your PIN. Learners abroad can pay by card. We never see your PIN."],
       ["When is the teacher paid?", "After the lesson, when you confirm it happened. If you do nothing for 48 hours it confirms itself."],
       ["Can I cancel?", <>Yes. Cancel or move a lesson <span className="mono">24</span> hours or more before and you get a full refund. Inside 24 hours there is no automatic refund.</>],
