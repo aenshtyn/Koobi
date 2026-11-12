@@ -8,7 +8,7 @@ import { OfferCard } from "@/components/site/offer-card";
 import { OfferGridSkeleton } from "@/components/site/skeletons";
 import { SearchForm } from "@/components/site/search-form";
 import { ExpertBand, HowItWorks, PromisesBand, RequestCard } from "@/components/site/sections";
-import { Bulb, CurvedArrow, Plant, Spark } from "@/components/ui/doodles";
+import { Bulb, Plant, Spark } from "@/components/ui/doodles";
 import { Seal } from "@/components/ui/trust";
 
 const POPULAR = ["Business English", "Marketing", "Excel", "KCSE Mathematics", "Interview"];
@@ -18,20 +18,14 @@ export default function HomePage() {
     <>
       <section className="page-wrap flex flex-wrap items-center gap-12 pt-9 pb-[76px]" aria-labelledby="hero-h">
         <div className="flex min-w-0 flex-[1_1_480px] flex-col gap-5">
-          <div className="relative">
-            <h1 id="hero-h" className="d1">
-              Learn from people
-              <br className="hide-sm" /> who have actually
-              <br /> <span className="swash">done it.</span>
-            </h1>
-            <p className="note mt-2 flex items-center gap-1 lg:absolute lg:bottom-1.5 lg:left-[236px] lg:mt-0 lg:w-[240px] lg:-rotate-3">
-              <CurvedArrow />
-              <span>Experience checked, with the date.</span>
-            </p>
-          </div>
+          <h1 id="hero-h" className="d1">
+            Learn from people
+            <br className="hide-sm" /> who have actually
+            <br /> <span className="swash">done it.</span>
+          </h1>
+          <p className="lead max-w-[540px] font-semibold text-ink!">Find teachers and experts with verified experience.</p>
           <p className="lead max-w-[540px]">
-            One-to-one lessons, group classes, workshops and programmes with verified Kenyan teachers and experts. Pay by
-            M-Pesa; we hold the money until the session happens.
+            Learn through live one-to-one lessons, group classes, workshops and structured programmes—all in one place.
           </p>
           <div className="mt-1 flex flex-col gap-3.5">
             <SearchForm id="hero-q" />
