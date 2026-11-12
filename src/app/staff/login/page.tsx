@@ -13,9 +13,14 @@ export default function StaffLoginPage() {
         <Logo />
         <div className="flex flex-col gap-2">
           <h1 className="t1">Staff sign-in</h1>
-          <p className="text-ink-2">Every sign-in and every document view is recorded in the audit log.</p>
+          <p className="text-ink-2">
+            Every sign-in and every document view is recorded in the audit log. You are asked to sign in again after 12 hours.
+          </p>
         </div>
         <StaffLoginForm />
+        <Link className="self-start text-[16px]" href="/forgot-password?next=%2Fstaff">
+          Forgot your password?
+        </Link>
         {testLogins ? (
           <Link className="btn3 self-start" href="/signin/test">
             Use a test staff account instead
